@@ -21,17 +21,34 @@ public class UnCliente implements Runnable {
     
     public void run(){
         String mensaje;
-        while(true){
-            try{
+        try {
+            while(true){
                 mensaje = entrada.readUTF();
                 String mensajeConNombre = nombre + ": " + mensaje;
-                for(UnCliente cliente : ServidorAsincrono.Cliente.values()){
-                    if (!cliente.nombre.equals(this.nombre)) {
-                        cliente.salida.writeUTF(mensajeConNombre);
+                // sincronizar al iterar sobre la colección compartida
+                synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+                    for(UnCliente cliente : ServidorAsincrono.Cliente.values()){
+                        // asegurar que no se reenvíe al propio remitente (comparación por identidad)
+                        if (cliente != this) {
+                            cliente.salida.writeUTF(mensajeConNombre);
+                        }
                     }
                 }
-            }catch (IOException ex){
             }
+        } catch (IOException ex) {
+            // El cliente se desconectó o ocurrió un error de IO: limpiamos recursos y lo removemos del mapa
+            try {
+                entrada.close();
+            } catch (IOException e) {
+                // ignorar
+            }
+            try {
+                salida.close();
+            } catch (IOException e) {
+                // ignorar
+            }
+            ServidorAsincrono.Cliente.remove(this.nombre);
+            System.out.println("Cliente desconectado: " + this.nombre);
         }
     }
     

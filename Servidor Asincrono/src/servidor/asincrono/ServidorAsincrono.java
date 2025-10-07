@@ -8,6 +8,8 @@ import java.util.HashMap;
 public class ServidorAsincrono {
 
     static HashMap <String, UnCliente> Cliente = new HashMap<>();
+    // Lock para sincronizar acceso a la colección de clientes
+    public static final Object CLIENTE_LOCK = new Object();
 
     @SuppressWarnings("CallToPrintStackTrace")
     public static void main(String[] args) {
