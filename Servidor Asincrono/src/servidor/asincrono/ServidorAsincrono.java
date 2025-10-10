@@ -4,11 +4,40 @@ package servidor.asincrono;
 import java.io.IOException;
 import java.util.HashMap;
 
+class UnCliente implements Runnable {
+    private java.net.Socket socket;
+    private String nombre;
+
+    public UnCliente(java.net.Socket socket, String nombre) {
+        this.socket = socket;
+        this.nombre = nombre;
+    }
+
+    @Override
+    public void run() {
+        
+        try {
+            java.io.DataInputStream entrada = new java.io.DataInputStream(socket.getInputStream());
+            java.io.DataOutputStream salida = new java.io.DataOutputStream(socket.getOutputStream());
+            salida.writeUTF("Bienvenido, " + nombre);
+            // Example: echo messages
+            String mensaje;
+            while ((mensaje = entrada.readUTF()) != null) {
+                salida.writeUTF("Echo: " + mensaje);
+            }
+        } catch (IOException e) {
+        } finally {
+            try {
+                socket.close();
+            } catch (IOException e) {
+            }
+        }
+    }
+}
 
 public class ServidorAsincrono {
 
     static HashMap <String, UnCliente> Cliente = new HashMap<>();
-    // Lock para sincronizar acceso a la colección de clientes
     public static final Object CLIENTE_LOCK = new Object();
 
     @SuppressWarnings("CallToPrintStackTrace")
