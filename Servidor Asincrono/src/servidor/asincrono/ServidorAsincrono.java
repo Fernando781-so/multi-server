@@ -1,63 +1,89 @@
-
 package servidor.asincrono;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.HashMap;
+import java.util.Map;
 
 class UnCliente implements Runnable {
-    private java.net.Socket socket;
+    private Socket socket;
     private String nombre;
+    private DataInputStream entrada;
+    private DataOutputStream salida;
+    private static Map<String, UnCliente> clientes;
 
-    public UnCliente(java.net.Socket socket, String nombre) {
+    public UnCliente(Socket socket, String nombre, Map<String, UnCliente> clientes) throws IOException {
         this.socket = socket;
         this.nombre = nombre;
+        this.clientes = clientes;
+        this.entrada = new DataInputStream(socket.getInputStream());
+        this.salida = new DataOutputStream(socket.getOutputStream());
+    }
+
+    public void enviarMensaje(String mensaje) {
+        try {
+            salida.writeUTF(mensaje);
+        } catch (IOException e) {
+            System.out.println("Error al enviar mensaje a " + nombre);
+        }
     }
 
     @Override
     public void run() {
-        
         try {
-            java.io.DataInputStream entrada = new java.io.DataInputStream(socket.getInputStream());
-            java.io.DataOutputStream salida = new java.io.DataOutputStream(socket.getOutputStream());
-            salida.writeUTF("Bienvenido, " + nombre);
-            // Example: echo messages
             String mensaje;
             while ((mensaje = entrada.readUTF()) != null) {
-                salida.writeUTF("Echo: " + mensaje);
+                System.out.println(nombre + ": " + mensaje);
+                for (UnCliente c : clientes.values()) {
+                    if (!c.nombre.equals(this.nombre)) {
+                        c.enviarMensaje(nombre + ": " + mensaje);
+                    }
+                }
             }
         } catch (IOException e) {
+            System.out.println(nombre + " se desconectó.");
         } finally {
             try {
                 socket.close();
-            } catch (IOException e) {
-            }
+            } catch (IOException e) {}
+            clientes.remove(nombre);
         }
     }
 }
 
 public class ServidorAsincrono {
-
-    static HashMap <String, UnCliente> Cliente = new HashMap<>();
-    public static final Object CLIENTE_LOCK = new Object();
-
-    @SuppressWarnings("CallToPrintStackTrace")
     public static void main(String[] args) {
-        try (java.net.ServerSocket serverSocket = new java.net.ServerSocket(8080)) {
+        Map<String, UnCliente> clientes = new HashMap<>();
+
+        try (ServerSocket serverSocket = new ServerSocket(8080)) {
             System.out.println("Servidor iniciado en el puerto 8080");
+
             while (true) {
-                java.net.Socket socket = serverSocket.accept();
-                java.io.DataInputStream entrada = new java.io.DataInputStream(socket.getInputStream());
-                java.io.DataOutputStream salida = new java.io.DataOutputStream(socket.getOutputStream());
+                Socket socket = serverSocket.accept();
+                DataInputStream entrada = new DataInputStream(socket.getInputStream());
+                DataOutputStream salida = new DataOutputStream(socket.getOutputStream());
+
                 salida.writeUTF("Ingrese su nombre:");
                 String nombre = entrada.readUTF();
-                UnCliente nuevoCliente = new UnCliente(socket, nombre);
-                Cliente.put(nombre, nuevoCliente);
+
+                UnCliente nuevoCliente = new UnCliente(socket, nombre, clientes);
+                clientes.put(nombre, nuevoCliente);
+
+                for (UnCliente c : clientes.values()) {
+                    if (!c.equals(nuevoCliente)) {
+                        c.enviarMensaje("🔵 " + nombre + " se ha conectado.");
+                    }
+                }
+
                 new Thread(nuevoCliente).start();
                 System.out.println("Cliente conectado: " + nombre);
             }
+
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
-    
 }
