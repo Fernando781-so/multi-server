@@ -55,6 +55,9 @@ class UnCliente implements Runnable {
 }
 
 public class ServidorAsincrono {
+    public static final String CLIENTE_LOCK = null;
+    public static final String Cliente = null;
+
     public static void main(String[] args) {
         Map<String, UnCliente> clientes = new HashMap<>();
 
