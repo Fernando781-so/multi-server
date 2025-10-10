@@ -1,4 +1,3 @@
-
 package ClienteMulti;
 
 import java.io.BufferedReader;
@@ -8,24 +7,26 @@ import java.io.InputStreamReader;
 import java.net.Socket;
 
 public class paraMandar implements Runnable {
-    final BufferedReader teclado = new BufferedReader(new InputStreamReader(System.in));
-    final DataOutputStream salida ;
+    private BufferedReader teclado = new BufferedReader(new InputStreamReader(System.in));
+    private DataOutputStream salida;
+
     public paraMandar(Socket s) throws IOException {
         this.salida = new DataOutputStream(s.getOutputStream());
     }
 
     @Override
     public void run() {
-        while ( true ){
-            String mensaje;
-            try {
-                mensaje = teclado.readLine();
+        try {
+            while (true) {
+                String mensaje = teclado.readLine();
+                if (mensaje.equalsIgnoreCase("salir")) {
+                    salida.writeUTF("**se ha desconectado**");
+                    break;
+                }
                 salida.writeUTF(mensaje);
-            } catch (IOException ex) {
-                ex.printStackTrace();
             }
-
+        } catch (IOException e) {
+            System.out.println("Error enviando mensaje.");
         }
     }
-
 }
