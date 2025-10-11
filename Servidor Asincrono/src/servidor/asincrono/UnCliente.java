@@ -9,7 +9,6 @@ public class UnCliente implements Runnable {
     private final String nombre;
     private boolean registrado = false;
     private int mensajesEnviados = 0;
-
     public UnCliente(Socket s, String nombre) throws IOException {
         this.salida = new DataOutputStream(s.getOutputStream());
         this.entrada = new DataInputStream(s.getInputStream());
