@@ -9,16 +9,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 class UnCliente implements Runnable {
-    private Socket socket;
-    private String nombre;
-    private DataInputStream entrada;
-    private DataOutputStream salida;
+    private final Socket socket;
+    private final String nombre;
+    private final DataInputStream entrada;
+    private final DataOutputStream salida;
     private static Map<String, UnCliente> clientes;
 
     public UnCliente(Socket socket, String nombre, Map<String, UnCliente> clientes) throws IOException {
         this.socket = socket;
         this.nombre = nombre;
-        this.clientes = clientes;
+        UnCliente.clientes = clientes;
         this.entrada = new DataInputStream(socket.getInputStream());
         this.salida = new DataOutputStream(socket.getOutputStream());
     }
@@ -86,7 +86,6 @@ public class ServidorAsincrono {
             }
 
         } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 }
