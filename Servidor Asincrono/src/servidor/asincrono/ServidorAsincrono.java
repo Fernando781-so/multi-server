@@ -1,66 +1,16 @@
 package servidor.asincrono;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.util.HashMap;
-import java.util.Map;
-
-class UnCliente implements Runnable {
-    private final Socket socket;
-    private final String nombre;
-    private final DataInputStream entrada;
-    private final DataOutputStream salida;
-    private static Map<String, UnCliente> clientes;
-
-    public UnCliente(Socket socket, String nombre, Map<String, UnCliente> clientes) throws IOException {
-        this.socket = socket;
-        this.nombre = nombre;
-        UnCliente.clientes = clientes;
-        this.entrada = new DataInputStream(socket.getInputStream());
-        this.salida = new DataOutputStream(socket.getOutputStream());
-    }
-
-    public void enviarMensaje(String mensaje) {
-        try {
-            salida.writeUTF(mensaje);
-        } catch (IOException e) {
-            System.out.println("Error al enviar mensaje a " + nombre);
-        }
-    }
-
-    @Override
-    public void run() {
-        try {
-            String mensaje;
-            while ((mensaje = entrada.readUTF()) != null) {
-                System.out.println(nombre + ": " + mensaje);
-                for (UnCliente c : clientes.values()) {
-                    if (!c.nombre.equals(this.nombre)) {
-                        c.enviarMensaje(nombre + ": " + mensaje);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            System.out.println(nombre + " se desconectó.");
-        } finally {
-            try {
-                socket.close();
-            } catch (IOException e) {}
-            clientes.remove(nombre);
-        }
-    }
-}
+import java.io.*;
+import java.net.*;
+import java.util.*;
 
 public class ServidorAsincrono {
-    public static final String CLIENTE_LOCK = null;
-    public static final String Cliente = null;
+
+    public static final Object CLIENTE_LOCK = new Object();
+    public static HashMap<String, UnCliente> Cliente = new HashMap<>();
+    public static HashMap<String, String> Usuarios = new HashMap<>();
 
     public static void main(String[] args) {
-        Map<String, UnCliente> clientes = new HashMap<>();
-
         try (ServerSocket serverSocket = new ServerSocket(8080)) {
             System.out.println("Servidor iniciado en el puerto 8080");
 
@@ -72,20 +22,26 @@ public class ServidorAsincrono {
                 salida.writeUTF("Ingrese su nombre:");
                 String nombre = entrada.readUTF();
 
-                UnCliente nuevoCliente = new UnCliente(socket, nombre, clientes);
-                clientes.put(nombre, nuevoCliente);
-
-                for (UnCliente c : clientes.values()) {
-                    if (!c.equals(nuevoCliente)) {
-                        c.enviarMensaje("🔵 " + nombre + " se ha conectado.");
-                    }
+                UnCliente nuevoCliente = new UnCliente(socket, nombre);
+                synchronized (CLIENTE_LOCK) {
+                    Cliente.put(nombre, nuevoCliente);
                 }
 
                 new Thread(nuevoCliente).start();
+
                 System.out.println("Cliente conectado: " + nombre);
+
+                synchronized (CLIENTE_LOCK) {
+                    for (UnCliente c : Cliente.values()) {
+                        if (!c.equals(nuevoCliente)) {
+                            c.salida.writeUTF("🔵 " + nombre + " se ha conectado.");
+                        }
+                    }
+                }
             }
 
         } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }

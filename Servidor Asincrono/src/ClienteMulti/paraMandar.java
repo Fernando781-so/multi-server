@@ -7,8 +7,8 @@ import java.io.InputStreamReader;
 import java.net.Socket;
 
 public class paraMandar implements Runnable {
-    private BufferedReader teclado = new BufferedReader(new InputStreamReader(System.in));
-    private DataOutputStream salida;
+    private final BufferedReader teclado = new BufferedReader(new InputStreamReader(System.in));
+    private final DataOutputStream salida;
 
     public paraMandar(Socket s) throws IOException {
         this.salida = new DataOutputStream(s.getOutputStream());
