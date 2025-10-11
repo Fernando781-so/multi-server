@@ -1,18 +1,19 @@
 package ClienteMulti;
 
+
 import java.io.IOException;
 import java.net.Socket;
 
 public class ClienteMulti {
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) {
         try {
             Socket s = new Socket("localhost", 8080);
             System.out.println("Conectado al servidor...");
 
             Thread hiloEnviar = new Thread(new paraMandar(s));
-            hiloEnviar.start();
-
             Thread hiloRecibir = new Thread(new paraRecibir(s));
+
+            hiloEnviar.start();
             hiloRecibir.start();
 
         } catch (IOException e) {
@@ -20,4 +21,3 @@ public class ClienteMulti {
         }
     }
 }
-
