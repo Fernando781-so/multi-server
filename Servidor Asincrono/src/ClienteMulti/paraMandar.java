@@ -18,15 +18,23 @@ public class paraMandar implements Runnable {
     public void run() {
         try {
             while (true) {
-                String mensaje = teclado.readLine();
-                if (mensaje.equalsIgnoreCase("salir")) {
-                    salida.writeUTF("**se ha desconectado**");
+                String linea = teclado.readLine();
+                if (linea == null) break;
+                linea = linea.trim();
+                if (linea.isEmpty()) continue;
+                if (linea.equalsIgnoreCase("salir")) {
+                    try {
+                        salida.writeUTF("**SE_DESCONECTA**");
+                    } catch (IOException ex) {}
                     break;
                 }
-                salida.writeUTF(mensaje);
+
+                salida.writeUTF(linea);
             }
         } catch (IOException e) {
-            System.out.println("Error enviando mensaje.");
+            System.out.println("Error al leer del teclado o enviar: " + e.getMessage());
+        } finally {
+            try { salida.close(); } catch (IOException e) {}
         }
     }
 }
