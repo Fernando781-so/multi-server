@@ -1,4 +1,3 @@
-
 package ClienteMulti;
 
 import java.io.DataInputStream;
@@ -6,9 +5,11 @@ import java.io.IOException;
 import java.net.Socket;
 
 public class paraRecibir implements Runnable {
-    private DataInputStream entrada;
+    private final DataInputStream entrada;
+    private final Socket socket;
 
     public paraRecibir(Socket s) throws IOException {
+        this.socket = s;
         this.entrada = new DataInputStream(s.getInputStream());
     }
 
@@ -16,11 +17,15 @@ public class paraRecibir implements Runnable {
     public void run() {
         try {
             while (true) {
-                String mensaje = entrada.readUTF();
-                System.out.println(mensaje);
+                String msg = entrada.readUTF(); // bloquea
+                if (msg == null) break;
+                System.out.println(msg);
             }
         } catch (IOException e) {
-            System.out.println("Desconectado del servidor.");
+            System.out.println("Conexión cerrada por el servidor o error de I/O: " + e.getMessage());
+        } finally {
+            try { entrada.close(); } catch (IOException e) {}
+            try { socket.close(); } catch (IOException e) {}
         }
     }
 }
