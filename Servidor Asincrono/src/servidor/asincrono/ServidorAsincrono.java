@@ -1,48 +1,68 @@
 package servidor.asincrono;
 
-import java.io.*;
-import java.net.*;
-import java.util.*;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.HashMap;
 
 public class ServidorAsincrono {
-
     public static final Object CLIENTE_LOCK = new Object();
-    public static HashMap<String, UnCliente> Cliente = new HashMap<>();
-    public static HashMap<String, String> Usuarios = new HashMap<>();
+    public static final HashMap<String, UnCliente> Cliente = new HashMap<>();
+    public static final HashMap<String, String> Usuarios = new HashMap<>();
 
     public static void main(String[] args) {
-        try (ServerSocket serverSocket = new ServerSocket(8080)) {
-            System.out.println("Servidor iniciado en el puerto 8080");
+        final int PORT = 8080;
+        System.out.println("Iniciando servidor en puerto " + PORT);
 
+        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             while (true) {
                 Socket socket = serverSocket.accept();
+                System.out.println("Conexión entrante desde " + socket.getRemoteSocketAddress());
                 DataInputStream entrada = new DataInputStream(socket.getInputStream());
                 DataOutputStream salida = new DataOutputStream(socket.getOutputStream());
+                String nombre = null;
+                while (true) {
+                    salida.writeUTF("Ingrese su nombre:");
+                    nombre = entrada.readUTF().trim();
 
-                salida.writeUTF("Ingrese su nombre:");
-                String nombre = entrada.readUTF();
+                    if (nombre.isEmpty()) {
+                        salida.writeUTF("Nombre vacío. Intenta de nuevo.");
+                        continue;
+                    }
 
-                UnCliente nuevoCliente = new UnCliente(socket, nombre);
-                synchronized (CLIENTE_LOCK) {
-                    Cliente.put(nombre, nuevoCliente);
+                    synchronized (CLIENTE_LOCK) {
+                        if (Cliente.containsKey(nombre)) {
+                            salida.writeUTF("El nombre '" + nombre + "' ya está en uso. Intenta otro.");
+                        } else {
+                            break;
+                        }
+                    }
                 }
+                UnCliente nuevo = new UnCliente(socket, nombre, entrada, salida);
 
-                new Thread(nuevoCliente).start();
+                synchronized (CLIENTE_LOCK) {
+                    Cliente.put(nombre, nuevo);
+                }
+                Thread t = new Thread(nuevo);
+                t.start();
 
                 System.out.println("Cliente conectado: " + nombre);
-
                 synchronized (CLIENTE_LOCK) {
                     for (UnCliente c : Cliente.values()) {
-                        if (!c.equals(nuevoCliente)) {
-                            c.salida.writeUTF("🔵 " + nombre + " se ha conectado.");
+                        if (!c.getNombre().equals(nombre)) {
+                            try {
+                                c.enviarDirecto("🔵 " + nombre + " se ha conectado.");
+                            } catch (IOException e) {
+                            }
                         }
                     }
                 }
             }
-
         } catch (IOException e) {
+            System.err.println("Error crítico en servidor: " + e.getMessage());
             e.printStackTrace();
         }
     }
-
 }
