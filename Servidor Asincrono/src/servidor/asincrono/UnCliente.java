@@ -1,20 +1,21 @@
 package servidor.asincrono;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.net.Socket;
+import java.util.HashSet;
+import java.util.Set;
 
 public class UnCliente implements Runnable {
 
     private final Socket socket;
-    private final DataOutputStream salida;
     private final DataInputStream entrada;
+    private final DataOutputStream salida;
     private final String nombre;
 
     private boolean registrado = false;
     private int mensajesEnviados = 0;
-    private static final int LIMITE_MENSAJES_SIN_REGISTRO = 3;
+    private static final int LIMITE_SIN_REGISTRO = 3;
+    private final Set<String> bloqueados = new HashSet<>();
 
     public UnCliente(Socket socket, String nombre, DataInputStream entrada, DataOutputStream salida) {
         this.socket = socket;
@@ -27,138 +28,188 @@ public class UnCliente implements Runnable {
         return nombre;
     }
 
-    public void enviarDirecto(String texto) throws IOException {
-        salida.writeUTF(texto);
-    }
-
-    private void enviarSeguro(String texto) {
+    public void enviar(String mensaje, String remitente) {
+        if (bloqueados.contains(remitente)) return;
         try {
-            salida.writeUTF(texto);
-        } catch (IOException e) {
-        }
+            salida.writeUTF(mensaje);
+        } catch (IOException ignored) {}
     }
 
-    private void reenviarAotros(String mensaje) {
+    private void enviarDirecto(String texto) {
+        try { salida.writeUTF(texto); } catch (IOException ignored) {}
+    }
+
+    private void reenviarATodos(String mensaje) {
         synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            for (UnCliente cliente : ServidorAsincrono.Cliente.values()) {
-                if (!cliente.getNombre().equals(this.nombre)) {
-                    cliente.enviarSeguro(mensaje);
+            for (UnCliente c : ServidorAsincrono.Cliente.values()) {
+                if (!c.getNombre().equals(this.nombre)) {
+                    c.enviar(nombre + ": " + mensaje, this.nombre);
                 }
             }
         }
     }
-    private void mostrarAyuda() throws IOException {
-        salida.writeUTF("📜 Comandos disponibles:\n"
+
+    private void mostrarAyuda() {
+        enviarDirecto("📜 Comandos disponibles:\n"
                 + "──────────────────────────────\n"
-                + " Puedes enviar mensajes escribiendo texto normal.\n"
-                + " ayuda → muestra este menú de ayuda\n"
-                + " registrar <usuario> <contraseña> → crea una nueva cuenta\n"
-                + " login <usuario> <contraseña> → inicia sesión en una cuenta ya registrada\n"
-                + " salir → desconecta del servidor\n"
-                + "\nSin registrarte puedes mandar solo " + LIMITE_MENSAJES_SIN_REGISTRO + " mensajes.\n"
-                + "Después de eso solo podrás leer mensajes hasta registrarte o iniciar sesión.");
+                + "💬 Escribe cualquier texto para enviar un mensaje.\n"
+                + "🆘 ayuda → muestra esta ayuda\n"
+                + "📝 registrar <usuario> <contraseña> → crea cuenta\n"
+                + "🔐 login <usuario> <contraseña> → inicia sesión\n"
+                + "🚫 bloquear <usuario> → bloquea a alguien (no verás sus mensajes)\n"
+                + "✅ desbloquear <usuario> → lo desbloqueas\n"
+                + "👥 bloqueados → muestra tu lista actual\n"
+                + "🚪 salir → desconecta\n"
+                + "\nLímite sin registro: " + LIMITE_SIN_REGISTRO + " mensajes.");
     }
 
-    private boolean procesarComando(String texto) throws IOException {
-        String trimmed = texto.trim().toLowerCase();
+    private boolean procesarComando(String msg) {
+        String[] partes = msg.trim().split("\\s+");
+        String comando = partes[0].toLowerCase();
 
-        if (trimmed.equals("ayuda")) {
-            mostrarAyuda();
-            return true;
-        }
+        try {
+            switch (comando) {
+                case "ayuda" -> mostrarAyuda();
 
-        if (trimmed.startsWith("registrar ")) {
-            String[] partes = texto.split("\\s+");
-            if (partes.length == 3) {
-                String user = partes[1];
-                String pass = partes[2];
-                synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-                    if (ServidorAsincrono.Usuarios.containsKey(user)) {
-                        salida.writeUTF("❌ El usuario '" + user + "' ya está registrado.");
-                    } else {
-                        ServidorAsincrono.Usuarios.put(user, pass);
-                        registrado = true;
-                        salida.writeUTF("✅ Registro exitoso. ¡Bienvenido, " + user + "!");
+                case "registrar" -> {
+                    if (partes.length != 3) {
+                        enviarDirecto("Uso correcto: registrar <usuario> <contraseña>");
+                        return true;
+                    }
+                    String user = partes[1], pass = partes[2];
+                    synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+                        if (ServidorAsincrono.Usuarios.containsKey(user)) {
+                            enviarDirecto("❌ El usuario '" + user + "' ya está registrado.");
+                        } else {
+                            ServidorAsincrono.Usuarios.put(user, pass);
+                            registrado = true;
+                            enviarDirecto("✅ Registro exitoso. ¡Bienvenido, " + user + "!");
+                        }
                     }
                 }
-            } else {
-                salida.writeUTF("Formato incorrecto. Usa: registrar <usuario> <contraseña>");
-            }
-            return true;
-        }
 
-        if (trimmed.startsWith("login ")) {
-            String[] partes = texto.split("\\s+");
-            if (partes.length == 3) {
-                String user = partes[1];
-                String pass = partes[2];
-                synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-                    if (ServidorAsincrono.Usuarios.containsKey(user)
-                            && ServidorAsincrono.Usuarios.get(user).equals(pass)) {
-                        registrado = true;
-                        salida.writeUTF("✅ Inicio de sesión correcto. Bienvenido de nuevo, " + user + ".");
-                    } else {
-                        salida.writeUTF("❌ Usuario o contraseña incorrectos.");
+                case "login" -> {
+                    if (partes.length != 3) {
+                        enviarDirecto("Uso correcto: login <usuario> <contraseña>");
+                        return true;
+                    }
+                    String user = partes[1], pass = partes[2];
+                    synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+                        if (ServidorAsincrono.Usuarios.containsKey(user)
+                                && ServidorAsincrono.Usuarios.get(user).equals(pass)) {
+                            registrado = true;
+                            enviarDirecto("✅ Sesión iniciada correctamente como " + user + ".");
+                        } else {
+                            enviarDirecto("❌ Usuario o contraseña incorrectos.");
+                        }
                     }
                 }
-            } else {
-                salida.writeUTF("Formato incorrecto. Usa: login <usuario> <contraseña>");
+
+                case "bloquear" -> {
+                    if (partes.length != 2) {
+                        enviarDirecto("Uso correcto: bloquear <nombre>");
+                        return true;
+                    }
+                    String objetivo = partes[1];
+                    synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+                        if (!ServidorAsincrono.Cliente.containsKey(objetivo)) {
+                            enviarDirecto("❌ El usuario '" + objetivo + "' no está conectado.");
+                            return true;
+                        }
+                        if (objetivo.equals(nombre)) {
+                            enviarDirecto("❌ No puedes bloquearte a ti mismo.");
+                            return true;
+                        }
+                        if (bloqueados.contains(objetivo)) {
+                            enviarDirecto("⚠️ Ya tienes bloqueado a " + objetivo + ".");
+                            return true;
+                        }
+                        bloqueados.add(objetivo);
+                        enviarDirecto("🚫 Has bloqueado a " + objetivo + ".");
+                    }
+                }
+
+                case "desbloquear" -> {
+                    if (partes.length != 2) {
+                        enviarDirecto("Uso correcto: desbloquear <nombre>");
+                        return true;
+                    }
+                    String objetivo = partes[1];
+                    if (!bloqueados.contains(objetivo)) {
+                        enviarDirecto("⚠️ " + objetivo + " no está bloqueado.");
+                        return true;
+                    }
+                    bloqueados.remove(objetivo);
+                    enviarDirecto("✅ Has desbloqueado a " + objetivo + ".");
+                }
+
+                case "bloqueados" -> {
+                    if (bloqueados.isEmpty()) {
+                        enviarDirecto("🟢 No tienes usuarios bloqueados.");
+                    } else {
+                        enviarDirecto("🚫 Usuarios bloqueados: " + bloqueados);
+                    }
+                }
+
+                case "salir" -> {
+                    enviarDirecto("👋 Desconectando...");
+                    socket.close();
+                    return true;
+                }
+
+                default -> {
+                    return false; 
+                }
             }
-            return true;
+        } catch (IOException e) {
+            enviarDirecto("❌ Error al ejecutar comando: " + e.getMessage());
         }
 
-        return false;
+        return true;
     }
 
     @Override
     public void run() {
-        try {
-            salida.writeUTF("👋 Bienvenido " + nombre + " al servidor de chat.\n"
-                    + "Puedes enviar hasta " + LIMITE_MENSAJES_SIN_REGISTRO + " mensajes sin registrarte.\n"
-                    + "Escribe 'ayuda' para ver los comandos disponibles.\n");
+        enviarDirecto("👋 Bienvenido " + nombre + ". Escribe 'ayuda' para ver los comandos.\n");
 
+        try {
             while (true) {
                 String mensaje = entrada.readUTF();
                 if (mensaje == null) break;
                 mensaje = mensaje.trim();
                 if (mensaje.isEmpty()) continue;
+
                 if (procesarComando(mensaje)) continue;
-                if (registrado) {
-                    String conNombre = nombre + ": " + mensaje;
-                    reenviarAotros(conNombre);
-                    continue;
-                }
-                if (mensajesEnviados >= LIMITE_MENSAJES_SIN_REGISTRO) {
-                    salida.writeUTF("""
-                                     Límite de mensajes alcanzado. Usa 'registrar' o 'login' para continuar enviando. 
-                                    Puedes seguir viendo los mensajes de los demás.""");
-                    continue;
+                if (!registrado) {
+                    if (mensajesEnviados >= LIMITE_SIN_REGISTRO) {
+                        enviarDirecto("⚠️ Has alcanzado el límite de " + LIMITE_SIN_REGISTRO
+                                + " mensajes. Usa 'registrar' o 'login' para continuar.");
+                        continue;
+                    }
+                    mensajesEnviados++;
                 }
 
-                // Aún puede enviar dentro del límite
-                mensajesEnviados++;
-                String conNombre = nombre + ": " + mensaje;
-                reenviarAotros(conNombre);
+                reenviarATodos(mensaje);
             }
         } catch (IOException e) {
             System.out.println("Cliente desconectado: " + nombre);
         } finally {
-            cerrarYNotificar();
+            cerrar();
         }
     }
 
-    private void cerrarYNotificar() {
+    private void cerrar() {
         try { entrada.close(); } catch (IOException ignored) {}
         try { salida.close(); } catch (IOException ignored) {}
         try { socket.close(); } catch (IOException ignored) {}
 
         synchronized (ServidorAsincrono.CLIENTE_LOCK) {
             ServidorAsincrono.Cliente.remove(nombre);
-            for (UnCliente cliente : ServidorAsincrono.Cliente.values()) {
-                cliente.enviarSeguro("🔴 " + nombre + " se ha desconectado.");
+            for (UnCliente c : ServidorAsincrono.Cliente.values()) {
+                c.enviar("🔴 " + nombre + " se ha desconectado.", nombre);
             }
         }
 
-        System.out.println("Conexión finalizada para: " + nombre);
+        System.out.println("Cliente " + nombre + " desconectado y limpiado.");
     }
 }
