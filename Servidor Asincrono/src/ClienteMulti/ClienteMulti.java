@@ -1,23 +1,35 @@
-package ClienteMulti;
+package cliente.asincrono;
 
-
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.util.Scanner;
 
 public class ClienteMulti {
+
     public static void main(String[] args) {
+        final String SERVER = "localhost";
+        final int PORT = 8080;
+
         try {
-            Socket s = new Socket("localhost", 8080);
-            System.out.println("Conectado al servidor...");
+            Socket socket = new Socket(SERVER, PORT);
+            System.out.println("✅ Conectado al servidor " + SERVER + ":" + PORT);
 
-            Thread hiloEnviar = new Thread(new paraMandar(s));
-            Thread hiloRecibir = new Thread(new paraRecibir(s));
+            DataInputStream entrada = new DataInputStream(socket.getInputStream());
+            DataOutputStream salida = new DataOutputStream(socket.getOutputStream());
+            Thread receptor = new Thread(new ParaRecibir(entrada));
+            receptor.start();
 
-            hiloEnviar.start();
-            hiloRecibir.start();
+            Thread emisor = new Thread(new ParaMandar(salida, socket));
+            emisor.start();
 
-        } catch (IOException e) {
-            System.out.println("No se pudo conectar al servidor.");
+            receptor.join();
+            emisor.join();
+
+        } catch (IOException | InterruptedException e) {
+            System.out.println("❌ Error en conexión: " + e.getMessage());
         }
     }
 }
+
