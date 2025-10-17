@@ -1,10 +1,9 @@
-package cliente.asincrono;
+package ClienteMulti;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.Scanner;
 
 public class ClienteMulti {
 
@@ -21,7 +20,7 @@ public class ClienteMulti {
             Thread receptor = new Thread(new ParaRecibir(entrada));
             receptor.start();
 
-            Thread emisor = new Thread(new ParaMandar(salida, socket));
+            Thread emisor = new Thread(new paraMandar(salida, socket));
             emisor.start();
 
             receptor.join();
