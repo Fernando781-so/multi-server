@@ -2,7 +2,6 @@ package servidor.asincrono;
 
 import java.io.*;
 import java.net.*;
-import java.util.*;
 
 public class UnCliente implements Runnable {
     private final Socket socket;
