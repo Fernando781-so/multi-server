@@ -1,21 +1,14 @@
 package servidor.asincrono;
 
 import java.io.*;
-import java.net.Socket;
-import java.util.HashSet;
-import java.util.Set;
+import java.net.*;
+import java.util.*;
 
 public class UnCliente implements Runnable {
-
     private final Socket socket;
     private final DataInputStream entrada;
     private final DataOutputStream salida;
     private final String nombre;
-
-    private boolean registrado = false;
-    private int mensajesEnviados = 0;
-    private static final int LIMITE_SIN_REGISTRO = 3;
-    private final Set<String> bloqueados = new HashSet<>();
 
     public UnCliente(Socket socket, String nombre, DataInputStream entrada, DataOutputStream salida) {
         this.socket = socket;
@@ -24,192 +17,179 @@ public class UnCliente implements Runnable {
         this.salida = salida;
     }
 
-    public String getNombre() {
-        return nombre;
-    }
+    public String getNombre() { return nombre; }
 
-    public void enviar(String mensaje, String remitente) {
-        if (bloqueados.contains(remitente)) return;
-        try {
-            salida.writeUTF(mensaje);
-        } catch (IOException ignored) {}
-    }
-
-    private void enviarDirecto(String texto) {
-        try { salida.writeUTF(texto); } catch (IOException ignored) {}
-    }
-
-    private void reenviarATodos(String mensaje) {
-        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            for (UnCliente c : ServidorAsincrono.Cliente.values()) {
-                if (!c.getNombre().equals(this.nombre)) {
-                    c.enviar(nombre + ": " + mensaje, this.nombre);
-                }
-            }
-        }
-    }
-
-    private void mostrarAyuda() {
-        enviarDirecto("📜 Comandos disponibles:\n"
-                + "──────────────────────────────\n"
-                + "💬 Escribe cualquier texto para enviar un mensaje.\n"
-                + "🆘 ayuda → muestra esta ayuda\n"
-                + "📝 registrar <usuario> <contraseña> → crea cuenta\n"
-                + "🔐 login <usuario> <contraseña> → inicia sesión\n"
-                + "🚫 bloquear <usuario> → bloquea a alguien (no verás sus mensajes)\n"
-                + "✅ desbloquear <usuario> → lo desbloqueas\n"
-                + "👥 bloqueados → muestra tu lista actual\n"
-                + "🚪 salir → desconecta\n"
-                + "\nLímite sin registro: " + LIMITE_SIN_REGISTRO + " mensajes.");
-    }
-
-    private boolean procesarComando(String msg) {
-        String[] partes = msg.trim().split("\\s+");
-        String comando = partes[0].toLowerCase();
-
-        try {
-            switch (comando) {
-                case "ayuda" -> mostrarAyuda();
-
-                case "registrar" -> {
-                    if (partes.length != 3) {
-                        enviarDirecto("Uso correcto: registrar <usuario> <contraseña>");
-                        return true;
-                    }
-                    String user = partes[1], pass = partes[2];
-                    synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-                        if (ServidorAsincrono.Usuarios.containsKey(user)) {
-                            enviarDirecto("❌ El usuario '" + user + "' ya está registrado.");
-                        } else {
-                            ServidorAsincrono.Usuarios.put(user, pass);
-                            registrado = true;
-                            enviarDirecto("✅ Registro exitoso. ¡Bienvenido, " + user + "!");
-                        }
-                    }
-                }
-
-                case "login" -> {
-                    if (partes.length != 3) {
-                        enviarDirecto("Uso correcto: login <usuario> <contraseña>");
-                        return true;
-                    }
-                    String user = partes[1], pass = partes[2];
-                    synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-                        if (ServidorAsincrono.Usuarios.containsKey(user)
-                                && ServidorAsincrono.Usuarios.get(user).equals(pass)) {
-                            registrado = true;
-                            enviarDirecto("✅ Sesión iniciada correctamente como " + user + ".");
-                        } else {
-                            enviarDirecto("❌ Usuario o contraseña incorrectos.");
-                        }
-                    }
-                }
-
-                case "bloquear" -> {
-                    if (partes.length != 2) {
-                        enviarDirecto("Uso correcto: bloquear <nombre>");
-                        return true;
-                    }
-                    String objetivo = partes[1];
-                    synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-                        if (!ServidorAsincrono.Cliente.containsKey(objetivo)) {
-                            enviarDirecto("❌ El usuario '" + objetivo + "' no está conectado.");
-                            return true;
-                        }
-                        if (objetivo.equals(nombre)) {
-                            enviarDirecto("❌ No puedes bloquearte a ti mismo.");
-                            return true;
-                        }
-                        if (bloqueados.contains(objetivo)) {
-                            enviarDirecto("⚠️ Ya tienes bloqueado a " + objetivo + ".");
-                            return true;
-                        }
-                        bloqueados.add(objetivo);
-                        enviarDirecto("🚫 Has bloqueado a " + objetivo + ".");
-                    }
-                }
-
-                case "desbloquear" -> {
-                    if (partes.length != 2) {
-                        enviarDirecto("Uso correcto: desbloquear <nombre>");
-                        return true;
-                    }
-                    String objetivo = partes[1];
-                    if (!bloqueados.contains(objetivo)) {
-                        enviarDirecto("⚠️ " + objetivo + " no está bloqueado.");
-                        return true;
-                    }
-                    bloqueados.remove(objetivo);
-                    enviarDirecto("✅ Has desbloqueado a " + objetivo + ".");
-                }
-
-                case "bloqueados" -> {
-                    if (bloqueados.isEmpty()) {
-                        enviarDirecto("🟢 No tienes usuarios bloqueados.");
-                    } else {
-                        enviarDirecto("🚫 Usuarios bloqueados: " + bloqueados);
-                    }
-                }
-
-                case "salir" -> {
-                    enviarDirecto("👋 Desconectando...");
-                    socket.close();
-                    return true;
-                }
-
-                default -> {
-                    return false; 
-                }
-            }
-        } catch (IOException e) {
-            enviarDirecto("❌ Error al ejecutar comando: " + e.getMessage());
-        }
-
-        return true;
+    public void enviar(String msg) {
+        try { salida.writeUTF(msg); } catch (IOException ignored) {}
     }
 
     @Override
     public void run() {
-        enviarDirecto("👋 Bienvenido " + nombre + ". Escribe 'ayuda' para ver los comandos.\n");
-
         try {
-            while (true) {
-                String mensaje = entrada.readUTF();
-                if (mensaje == null) break;
-                mensaje = mensaje.trim();
-                if (mensaje.isEmpty()) continue;
+            enviar("👋 Bienvenido al chat, " + nombre + "! Escribe 'ayuda' para ver comandos.");
 
-                if (procesarComando(mensaje)) continue;
-                if (!registrado) {
-                    if (mensajesEnviados >= LIMITE_SIN_REGISTRO) {
-                        enviarDirecto("⚠️ Has alcanzado el límite de " + LIMITE_SIN_REGISTRO
-                                + " mensajes. Usa 'registrar' o 'login' para continuar.");
-                        continue;
-                    }
-                    mensajesEnviados++;
+            while (true) {
+                String msg = entrada.readUTF();
+                if (msg == null) break;
+                msg = msg.trim();
+
+                if (msg.equalsIgnoreCase("salir")) {
+                    enviar("👋 Desconectando...");
+                    break;
                 }
 
-                reenviarATodos(mensaje);
+                if (procesarComando(msg)) continue;
+                reenviar(nombre + ": " + msg);
             }
         } catch (IOException e) {
-            System.out.println("Cliente desconectado: " + nombre);
+            System.out.println("❌ Cliente desconectado: " + nombre);
         } finally {
             cerrar();
         }
     }
 
+    private boolean procesarComando(String msg) {
+        try {
+            if (msg.equalsIgnoreCase("ayuda")) {
+                enviar("""
+                        🧭 Comandos disponibles:
+                        ──────────────────────
+                        gato @usuario       → Proponer jugar al gato.
+                        aceptar @usuario    → Aceptar propuesta de juego.
+                        marcar f c          → Marcar casilla (0-2 filas, 0-2 columnas).
+                        rendirse @usuario   → Rendirse en una partida.
+                        salir               → Salir del chat.
+                        """);
+                return true;
+            }
+
+            if (msg.startsWith("gato @")) {
+                String rival = msg.substring(6).trim();
+                return proponerJuego(rival);
+            }
+
+            if (msg.startsWith("aceptar @")) {
+                String rival = msg.substring(9).trim();
+                return aceptarJuego(rival);
+            }
+
+            if (msg.startsWith("marcar ")) {
+                String[] partes = msg.split(" ");
+                if (partes.length != 3) {
+                    enviar("Uso: marcar fila columna (0-2)");
+                    return true;
+                }
+                int f = Integer.parseInt(partes[1]);
+                int c = Integer.parseInt(partes[2]);
+                return marcar(f, c);
+            }
+
+            if (msg.startsWith("rendirse @")) {
+                String rival = msg.substring(11).trim();
+                return rendirse(rival);
+            }
+
+        } catch (Exception e) {
+            enviar("⚠️ Error en comando: " + e.getMessage());
+        }
+        return false;
+    }
+
+    private boolean proponerJuego(String rival) {
+        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+            UnCliente otro = ServidorAsincrono.Cliente.get(rival);
+            if (otro == null) {
+                enviar("❌ El usuario no existe o no está conectado.");
+                return true;
+            }
+            if (rival.equals(nombre)) {
+                enviar("❌ No puedes jugar contigo mismo.");
+                return true;
+            }
+
+            String clave = JuegoGato.clave(nombre, rival);
+            if (ServidorAsincrono.Partidas.containsKey(clave)) {
+                enviar("⚠️ Ya tienes una partida activa con " + rival);
+                return true;
+            }
+
+            otro.enviar("🎮 " + nombre + " te ha propuesto jugar al gato. Usa 'aceptar @" + nombre + "' para aceptar.");
+            enviar("✅ Propuesta enviada a " + rival);
+        }
+        return true;
+    }
+
+    private boolean aceptarJuego(String rival) {
+        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+            UnCliente otro = ServidorAsincrono.Cliente.get(rival);
+            if (otro == null) {
+                enviar("❌ El usuario no existe o no está conectado.");
+                return true;
+            }
+
+            String clave = JuegoGato.clave(nombre, rival);
+            if (ServidorAsincrono.Partidas.containsKey(clave)) {
+                enviar("⚠️ Ya hay una partida activa con " + rival);
+                return true;
+            }
+
+            JuegoGato partida = new JuegoGato(this, otro);
+            ServidorAsincrono.Partidas.put(clave, partida);
+            partida.iniciar();
+        }
+        return true;
+    }
+
+    private boolean marcar(int fila, int col) {
+        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+            for (JuegoGato partida : ServidorAsincrono.Partidas.values()) {
+                if (partida.contieneJugador(nombre)) {
+                    partida.jugar(nombre, fila, col);
+                    return true;
+                }
+            }
+        }
+        enviar("⚠️ No estás en ninguna partida activa.");
+        return true;
+    }
+
+    private boolean rendirse(String rival) {
+        String clave = JuegoGato.clave(nombre, rival);
+        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+            JuegoGato p = ServidorAsincrono.Partidas.get(clave);
+            if (p == null) {
+                enviar("⚠️ No tienes partida activa con " + rival);
+                return true;
+            }
+            p.rendirse(nombre);
+            ServidorAsincrono.Partidas.remove(clave);
+        }
+        return true;
+    }
+
+    private void reenviar(String msg) {
+        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+            for (UnCliente c : ServidorAsincrono.Cliente.values()) {
+                if (!c.nombre.equals(this.nombre)) c.enviar(msg);
+            }
+        }
+    }
+
     private void cerrar() {
-        try { entrada.close(); } catch (IOException ignored) {}
-        try { salida.close(); } catch (IOException ignored) {}
-        try { socket.close(); } catch (IOException ignored) {}
+        try {
+            entrada.close();
+            salida.close();
+            socket.close();
+        } catch (IOException ignored) {}
 
         synchronized (ServidorAsincrono.CLIENTE_LOCK) {
             ServidorAsincrono.Cliente.remove(nombre);
-            for (UnCliente c : ServidorAsincrono.Cliente.values()) {
-                c.enviar("🔴 " + nombre + " se ha desconectado.", nombre);
+            for (JuegoGato g : ServidorAsincrono.Partidas.values()) {
+                if (g.contieneJugador(nombre)) {
+                    g.rendirse(nombre);
+                }
             }
         }
-
-        System.out.println("Cliente " + nombre + " desconectado y limpiado.");
+        System.out.println("🔴 Desconectado: " + nombre);
     }
 }
