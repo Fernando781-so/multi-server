@@ -1,50 +1,30 @@
 package ClienteMulti;
 
+import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.Socket;
-import java.util.Scanner;
 
 public class paraMandar implements Runnable {
+    final BufferedReader teclado = new BufferedReader(new InputStreamReader(System.in));
+    final DataOutputStream salida;
 
-    private final DataOutputStream salida;
-    private final Socket socket;
-
-    public paraMandar(DataOutputStream salida, Socket socket) {
-        this.salida = salida;
-        this.socket = socket;
+    public paraMandar(Socket s) throws IOException {
+        this.salida = new DataOutputStream(s.getOutputStream());
     }
 
     @Override
     public void run() {
-        try (Scanner sc = new Scanner(System.in)) {
-            try {
-                System.out.println("""
-                        📜 Bienvenido al chat asíncrono.
-                        Escribe 'ayuda' para ver los comandos disponibles.
-                        ────────────────────────────────
-                        """);
-
-                while (true) {
-                    String msg = sc.nextLine().trim();
-                    if (msg.isEmpty()) continue;
-
-                    salida.writeUTF(msg);
-
-                    if (msg.equalsIgnoreCase("salir")) {
-                        System.out.println("👋 Saliendo del chat...");
-                        break;
-                    }
-                }
-            } catch (IOException e) {
-                System.out.println("⚠️ Error al enviar mensaje: " + e.getMessage());
-            } finally {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-                System.out.println("🔴 Conexión cerrada.");
+        try {
+            while (true) {
+                String mensaje = teclado.readLine();
+                salida.writeUTF(mensaje);
             }
+        } catch (IOException ex) {
+            System.out.println("Error al enviar mensaje.");
         }
     }
 }
+
 
