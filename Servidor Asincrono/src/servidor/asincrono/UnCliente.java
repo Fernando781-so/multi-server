@@ -2,193 +2,144 @@ package servidor.asincrono;
 
 import java.io.*;
 import java.net.*;
+import java.util.*;
 
 public class UnCliente implements Runnable {
-    private final Socket socket;
-    private final DataInputStream entrada;
-    private final DataOutputStream salida;
-    private final String nombre;
 
-    public UnCliente(Socket socket, String nombre, DataInputStream entrada, DataOutputStream salida) {
-        this.socket = socket;
+    final Socket socket;
+    final DataInputStream entrada;
+    final DataOutputStream salida;
+    final String nombre;
+    private final Set<String> bloqueados = new HashSet<>();
+    private String rival = null;
+    private boolean enPartida = false;
+
+    public UnCliente(Socket s, String nombre) throws IOException {
+        this.socket = s;
         this.nombre = nombre;
-        this.entrada = entrada;
-        this.salida = salida;
-    }
-
-    public String getNombre() { return nombre; }
-
-    public void enviar(String msg) {
-        try { salida.writeUTF(msg); } catch (IOException ignored) {}
+        entrada = new DataInputStream(s.getInputStream());
+        salida = new DataOutputStream(s.getOutputStream());
     }
 
     @Override
     public void run() {
         try {
-            enviar("👋 Bienvenido al chat, " + nombre + "! Escribe 'ayuda' para ver comandos.");
-
+            String mensaje;
             while (true) {
-                String msg = entrada.readUTF();
-                if (msg == null) break;
-                msg = msg.trim();
+                mensaje = entrada.readUTF();
+                if (mensaje == null) break;
 
-                if (msg.equalsIgnoreCase("salir")) {
-                    enviar("👋 Desconectando...");
-                    break;
+                if (mensaje.startsWith("/")) {
+                    procesarComando(mensaje);
+                } else {
+                    if (enPartida && rival != null) {
+                        UnCliente otro = ServidorAsincrono.Clientes.values()
+                                .stream().filter(c -> rival.equals(c.nombre))
+                                .findFirst().orElse(null);
+                        if (otro != null) otro.salida.writeUTF(nombre + " (Gato): " + mensaje);
+                    } else {
+                        broadcast(nombre + ": " + mensaje);
+                    }
                 }
-
-                if (procesarComando(msg)) continue;
-                reenviar(nombre + ": " + msg);
             }
         } catch (IOException e) {
-            System.out.println("❌ Cliente desconectado: " + nombre);
+            System.out.println("Cliente desconectado: " + nombre);
         } finally {
-            cerrar();
+            try { socket.close(); } catch (IOException ignored) {}
+            synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+                ServidorAsincrono.Clientes.remove(socket.getRemoteSocketAddress().toString());
+            }
         }
     }
 
-    private boolean procesarComando(String msg) {
-        try {
-            if (msg.equalsIgnoreCase("ayuda")) {
-                enviar("""
-                        🧭 Comandos disponibles:
-                        ──────────────────────
-                        gato @usuario       → Proponer jugar al gato.
-                        aceptar @usuario    → Aceptar propuesta de juego.
-                        marcar f c          → Marcar casilla (0-2 filas, 0-2 columnas).
-                        rendirse @usuario   → Rendirse en una partida.
-                        salir               → Salir del chat.
-                        """);
-                return true;
+    private void procesarComando(String mensaje) throws IOException {
+        String[] partes = mensaje.split(" ");
+        String comando = partes[0].toUpperCase();
+
+        switch (comando) {
+            case "/BLOQUEAR" -> {
+                if (nombre == null) { salida.writeUTF("No puedes bloquear sin iniciar sesión."); return; }
+                if (partes.length < 2) { salida.writeUTF("Uso: /bloquear <usuario>"); return; }
+                String user = partes[1];
+                if (user.equals(nombre)) { salida.writeUTF("No puedes bloquearte a ti mismo."); return; }
+
+                UnCliente target = buscarUsuario(user);
+                if (target == null) { salida.writeUTF("Usuario no encontrado o no conectado."); return; }
+                if (enPartida && rival != null && rival.equals(user)) { salida.writeUTF("No puedes bloquear a tu rival en juego."); return; }
+
+                bloqueados.add(user);
+                salida.writeUTF("Has bloqueado a " + user);
             }
 
-            if (msg.startsWith("gato @")) {
-                String rival = msg.substring(6).trim();
-                return proponerJuego(rival);
+            case "/DESBLOQUEAR" -> {
+                if (partes.length < 2) { salida.writeUTF("Uso: /desbloquear <usuario>"); return; }
+                String user = partes[1];
+                if (!bloqueados.contains(user)) { salida.writeUTF("Ese usuario no está bloqueado."); return; }
+                bloqueados.remove(user);
+                salida.writeUTF("Has desbloqueado a " + user);
             }
 
-            if (msg.startsWith("aceptar @")) {
-                String rival = msg.substring(9).trim();
-                return aceptarJuego(rival);
-            }
+            case "/GATO" -> {
+                if (nombre == null) { salida.writeUTF("Debes iniciar sesión para jugar."); return; }
+                if (partes.length < 2) { salida.writeUTF("Uso: /gato <usuario>"); return; }
+                String oponente = partes[1];
+                UnCliente rivalCliente = buscarUsuario(oponente);
+                if (rivalCliente == null) { salida.writeUTF("Usuario no encontrado o no conectado."); return; }
+                if (bloqueados.contains(oponente)) { salida.writeUTF("Tienes bloqueado a ese usuario."); return; }
+                if (rivalCliente.bloqueados.contains(nombre)) { salida.writeUTF("Ese usuario te tiene bloqueado."); return; }
 
-            if (msg.startsWith("marcar ")) {
-                String[] partes = msg.split(" ");
-                if (partes.length != 3) {
-                    enviar("Uso: marcar fila columna (0-2)");
-                    return true;
+                if (rivalCliente.enPartida) {
+                    salida.writeUTF("El usuario ya está en una partida.");
+                    return;
                 }
-                int f = Integer.parseInt(partes[1]);
-                int c = Integer.parseInt(partes[2]);
-                return marcar(f, c);
+
+                rivalCliente.salida.writeUTF(nombre + " te ha propuesto jugar al gato. Acepta con /aceptar " + nombre);
+                salida.writeUTF("Solicitud enviada a " + oponente);
             }
 
-            if (msg.startsWith("rendirse @")) {
-                String rival = msg.substring(11).trim();
-                return rendirse(rival);
+            case "/ACEPTAR" -> {
+                if (partes.length < 2) { salida.writeUTF("Uso: /aceptar <usuario>"); return; }
+                String quien = partes[1];
+                UnCliente jugador = buscarUsuario(quien);
+                if (jugador == null) { salida.writeUTF("No se encontró al usuario."); return; }
+
+                if (jugador.enPartida || enPartida) {
+                    salida.writeUTF("Ya estás o el otro jugador está en una partida.");
+                    return;
+                }
+
+                this.enPartida = true;
+                this.rival = quien;
+                jugador.enPartida = true;
+                jugador.rival = this.nombre;
+
+                boolean empieza = new Random().nextBoolean();
+                String msg = "Comienza la partida entre " + nombre + " y " + quien + ".\nEmpieza: " + (empieza ? nombre : quien);
+
+                jugador.salida.writeUTF(msg);
+                this.salida.writeUTF(msg);
             }
 
-        } catch (Exception e) {
-            enviar("⚠️ Error en comando: " + e.getMessage());
+            default -> salida.writeUTF("Comando no reconocido.");
         }
-        return false;
     }
 
-    private boolean proponerJuego(String rival) {
+    private void broadcast(String mensaje) throws IOException {
         synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            UnCliente otro = ServidorAsincrono.Cliente.get(rival);
-            if (otro == null) {
-                enviar("❌ El usuario no existe o no está conectado.");
-                return true;
-            }
-            if (rival.equals(nombre)) {
-                enviar("❌ No puedes jugar contigo mismo.");
-                return true;
-            }
-
-            String clave = JuegoGato.clave(nombre, rival);
-            if (ServidorAsincrono.Partidas.containsKey(clave)) {
-                enviar("⚠️ Ya tienes una partida activa con " + rival);
-                return true;
-            }
-
-            otro.enviar("🎮 " + nombre + " te ha propuesto jugar al gato. Usa 'aceptar @" + nombre + "' para aceptar.");
-            enviar("✅ Propuesta enviada a " + rival);
-        }
-        return true;
-    }
-
-    private boolean aceptarJuego(String rival) {
-        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            UnCliente otro = ServidorAsincrono.Cliente.get(rival);
-            if (otro == null) {
-                enviar("❌ El usuario no existe o no está conectado.");
-                return true;
-            }
-
-            String clave = JuegoGato.clave(nombre, rival);
-            if (ServidorAsincrono.Partidas.containsKey(clave)) {
-                enviar("⚠️ Ya hay una partida activa con " + rival);
-                return true;
-            }
-
-            JuegoGato partida = new JuegoGato(this, otro);
-            ServidorAsincrono.Partidas.put(clave, partida);
-            partida.iniciar();
-        }
-        return true;
-    }
-
-    private boolean marcar(int fila, int col) {
-        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            for (JuegoGato partida : ServidorAsincrono.Partidas.values()) {
-                if (partida.contieneJugador(nombre)) {
-                    partida.jugar(nombre, fila, col);
-                    return true;
+            for (UnCliente c : ServidorAsincrono.Clientes.values()) {
+                if (c != this && !c.bloqueados.contains(this.nombre)) {
+                    c.salida.writeUTF(mensaje);
                 }
             }
         }
-        enviar("⚠️ No estás en ninguna partida activa.");
-        return true;
     }
 
-    private boolean rendirse(String rival) {
-        String clave = JuegoGato.clave(nombre, rival);
+    private UnCliente buscarUsuario(String user) {
         synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            JuegoGato p = ServidorAsincrono.Partidas.get(clave);
-            if (p == null) {
-                enviar("⚠️ No tienes partida activa con " + rival);
-                return true;
-            }
-            p.rendirse(nombre);
-            ServidorAsincrono.Partidas.remove(clave);
-        }
-        return true;
-    }
-
-    private void reenviar(String msg) {
-        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            for (UnCliente c : ServidorAsincrono.Cliente.values()) {
-                if (!c.nombre.equals(this.nombre)) c.enviar(msg);
+            for (UnCliente c : ServidorAsincrono.Clientes.values()) {
+                if (user.equals(c.nombre)) return c;
             }
         }
-    }
-
-    private void cerrar() {
-        try {
-            entrada.close();
-            salida.close();
-            socket.close();
-        } catch (IOException ignored) {}
-
-        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            ServidorAsincrono.Cliente.remove(nombre);
-            for (JuegoGato g : ServidorAsincrono.Partidas.values()) {
-                if (g.contieneJugador(nombre)) {
-                    g.rendirse(nombre);
-                }
-            }
-        }
-        System.out.println("🔴 Desconectado: " + nombre);
+        return null;
     }
 }
