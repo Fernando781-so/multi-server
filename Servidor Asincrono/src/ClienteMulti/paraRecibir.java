@@ -2,24 +2,24 @@ package ClienteMulti;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.net.Socket;
 
 public class paraRecibir implements Runnable {
+    final DataInputStream entrada;
 
-    private final DataInputStream entrada;
-
-    public paraRecibir(DataInputStream entrada) {
-        this.entrada = entrada;
+    public paraRecibir(Socket s) throws IOException {
+        entrada = new DataInputStream(s.getInputStream());
     }
 
     @Override
     public void run() {
         try {
             while (true) {
-                String msg = entrada.readUTF();
-                System.out.println(msg);
+                String mensaje = entrada.readUTF();
+                System.out.println(mensaje);
             }
         } catch (IOException e) {
-            System.out.println("⚠️ Conexión cerrada por el servidor.");
+            System.out.println("Conexión cerrada por el servidor.");
         }
     }
 }
