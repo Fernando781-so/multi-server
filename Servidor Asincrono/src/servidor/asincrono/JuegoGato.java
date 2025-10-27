@@ -31,7 +31,7 @@ public class JuegoGato {
         enviarAmbos("👉 Empieza: " + turno);
     }
 
-    public void jugar(String jugador, int fila, int col) {
+    public synchronized void jugar(String jugador, int fila, int col) {
         if (!activo) return;
         if (!jugador.equals(turno)) {
             getJugador(jugador).enviar("⏳ No es tu turno.");
@@ -53,6 +53,10 @@ public class JuegoGato {
         if (verificarGanador(simbolo)) {
             enviarAmbos("🏆 ¡" + jugador + " ha ganado!");
             activo = false;
+            // Registrar resultado si tu servidor tiene la función registrarResultado (opcional)
+            try {
+                ServidorAsincrono.registrarResultadoIfExists(jugador1.getNombre(), jugador2.getNombre(), jugador);
+            } catch (Throwable ignored) {}
             ServidorAsincrono.Partidas.remove(clave(jugador1.getNombre(), jugador2.getNombre()));
             return;
         }
@@ -60,6 +64,9 @@ public class JuegoGato {
         if (tableroLleno()) {
             enviarAmbos("🤝 Empate!");
             activo = false;
+            try {
+                ServidorAsincrono.registrarResultadoIfExistsDraw(jugador1.getNombre(), jugador2.getNombre());
+            } catch (Throwable ignored) {}
             ServidorAsincrono.Partidas.remove(clave(jugador1.getNombre(), jugador2.getNombre()));
             return;
         }
@@ -100,6 +107,7 @@ public class JuegoGato {
     }
 
     private void enviarAmbos(String msg) {
+        // usa el método público enviar(...) que debe existir en UnCliente
         jugador1.enviar(msg);
         jugador2.enviar(msg);
     }
@@ -113,5 +121,10 @@ public class JuegoGato {
         String ganador = jugador1.getNombre().equals(nombre) ? jugador2.getNombre() : jugador1.getNombre();
         enviarAmbos("🏳️ " + nombre + " se ha rendido. ¡" + ganador + " gana!");
         activo = false;
+        // Registrar resultado si existe la función en ServidorAsincrono (opcional)
+        try {
+            ServidorAsincrono.registrarResultadoIfExists( (jugador1.getNombre()), (jugador2.getNombre()), ganador);
+        } catch (Throwable ignored) {}
+        ServidorAsincrono.Partidas.remove(clave(jugador1.getNombre(), jugador2.getNombre()));
     }
 }

@@ -33,9 +33,7 @@ public class UnCliente implements Runnable {
                     procesarComando(mensaje);
                 } else {
                     if (enPartida && rival != null) {
-                        UnCliente otro = ServidorAsincrono.Clientes.values()
-                                .stream().filter(c -> rival.equals(c.nombre))
-                                .findFirst().orElse(null);
+                        UnCliente otro = buscarUsuario(rival);
                         if (otro != null) otro.salida.writeUTF(nombre + " (Gato): " + mensaje);
                     } else {
                         broadcast(nombre + ": " + mensaje);
@@ -57,6 +55,13 @@ public class UnCliente implements Runnable {
         String comando = partes[0].toUpperCase();
 
         switch (comando) {
+            case "/RANKING" -> salida.writeUTF(ServidorAsincrono.obtenerRanking());
+
+            case "/VERSUS" -> {
+                if (partes.length < 3) { salida.writeUTF("Uso: /versus <jugador1> <jugador2>"); return; }
+                salida.writeUTF(ServidorAsincrono.obtenerVs(partes[1], partes[2]));
+            }
+
             case "/BLOQUEAR" -> {
                 if (nombre == null) { salida.writeUTF("No puedes bloquear sin iniciar sesión."); return; }
                 if (partes.length < 2) { salida.writeUTF("Uso: /bloquear <usuario>"); return; }
@@ -64,8 +69,8 @@ public class UnCliente implements Runnable {
                 if (user.equals(nombre)) { salida.writeUTF("No puedes bloquearte a ti mismo."); return; }
 
                 UnCliente target = buscarUsuario(user);
-                if (target == null) { salida.writeUTF("Usuario no encontrado o no conectado."); return; }
-                if (enPartida && rival != null && rival.equals(user)) { salida.writeUTF("No puedes bloquear a tu rival en juego."); return; }
+                if (target == null) { salida.writeUTF("Usuario no encontrado."); return; }
+                if (enPartida && rival != null && rival.equals(user)) { salida.writeUTF("No puedes bloquear a tu rival mientras juegas."); return; }
 
                 bloqueados.add(user);
                 salida.writeUTF("Has bloqueado a " + user);
@@ -114,10 +119,21 @@ public class UnCliente implements Runnable {
                 jugador.rival = this.nombre;
 
                 boolean empieza = new Random().nextBoolean();
-                String msg = "Comienza la partida entre " + nombre + " y " + quien + ".\nEmpieza: " + (empieza ? nombre : quien);
-
+                String msg = "Comienza la partida entre " + nombre + " y " + quien + ". Empieza: " + (empieza ? nombre : quien);
                 jugador.salida.writeUTF(msg);
                 this.salida.writeUTF(msg);
+
+                // Simulación: decide ganador aleatorio
+                String resultado = new String[]{"gana1", "gana2", "empate"}[new Random().nextInt(3)];
+                ServidorAsincrono.registrarResultado(nombre, quien, resultado);
+
+                jugador.enPartida = false;
+                this.enPartida = false;
+                jugador.rival = null;
+                this.rival = null;
+
+                jugador.salida.writeUTF("Partida finalizada. Resultado: " + resultado);
+                this.salida.writeUTF("Partida finalizada. Resultado: " + resultado);
             }
 
             default -> salida.writeUTF("Comando no reconocido.");
@@ -137,7 +153,7 @@ public class UnCliente implements Runnable {
     private UnCliente buscarUsuario(String user) {
         synchronized (ServidorAsincrono.CLIENTE_LOCK) {
             for (UnCliente c : ServidorAsincrono.Clientes.values()) {
-                if (user.equals(c.nombre)) return c;
+                if (user != null && user.equals(c.nombre)) return c;
             }
         }
         return null;
