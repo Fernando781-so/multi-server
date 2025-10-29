@@ -31,7 +31,7 @@ public class JuegoGato {
         enviarAmbos("👉 Empieza: " + turno);
     }
 
-    public synchronized void jugar(String jugador, int fila, int col) {
+    public void jugar(String jugador, int fila, int col) {
         if (!activo) return;
         if (!jugador.equals(turno)) {
             getJugador(jugador).enviar("⏳ No es tu turno.");
@@ -52,27 +52,40 @@ public class JuegoGato {
 
         if (verificarGanador(simbolo)) {
             enviarAmbos("🏆 ¡" + jugador + " ha ganado!");
+            actualizarRanking(jugador, true);
             activo = false;
-            // Registrar resultado si tu servidor tiene la función registrarResultado (opcional)
-            try {
-                ServidorAsincrono.registrarResultadoIfExists(jugador1.getNombre(), jugador2.getNombre(), jugador);
-            } catch (Throwable ignored) {}
             ServidorAsincrono.Partidas.remove(clave(jugador1.getNombre(), jugador2.getNombre()));
             return;
         }
 
         if (tableroLleno()) {
             enviarAmbos("🤝 Empate!");
+            actualizarRanking(null, false);
             activo = false;
-            try {
-                ServidorAsincrono.registrarResultadoIfExistsDraw(jugador1.getNombre(), jugador2.getNombre());
-            } catch (Throwable ignored) {}
             ServidorAsincrono.Partidas.remove(clave(jugador1.getNombre(), jugador2.getNombre()));
             return;
         }
 
         turno = jugador.equals(jugador1.getNombre()) ? jugador2.getNombre() : jugador1.getNombre();
         enviarAmbos("👉 Turno de: " + turno);
+    }
+
+    private void actualizarRanking(String ganador, boolean victoria) {
+        EstadisticasJugador est1 = ServidorAsincrono.Ranking.get(jugador1.getNombre());
+        EstadisticasJugador est2 = ServidorAsincrono.Ranking.get(jugador2.getNombre());
+
+        if (victoria) {
+            if (ganador.equals(jugador1.getNombre())) {
+                est1.registrarVictoria();
+                est2.registrarDerrota();
+            } else {
+                est2.registrarVictoria();
+                est1.registrarDerrota();
+            }
+        } else {
+            est1.registrarEmpate();
+            est2.registrarEmpate();
+        }
     }
 
     private void inicializarTablero() {
@@ -107,7 +120,6 @@ public class JuegoGato {
     }
 
     private void enviarAmbos(String msg) {
-        // usa el método público enviar(...) que debe existir en UnCliente
         jugador1.enviar(msg);
         jugador2.enviar(msg);
     }
@@ -120,11 +132,7 @@ public class JuegoGato {
         if (!activo) return;
         String ganador = jugador1.getNombre().equals(nombre) ? jugador2.getNombre() : jugador1.getNombre();
         enviarAmbos("🏳️ " + nombre + " se ha rendido. ¡" + ganador + " gana!");
+        actualizarRanking(ganador, true);
         activo = false;
-        // Registrar resultado si existe la función en ServidorAsincrono (opcional)
-        try {
-            ServidorAsincrono.registrarResultadoIfExists( (jugador1.getNombre()), (jugador2.getNombre()), ganador);
-        } catch (Throwable ignored) {}
-        ServidorAsincrono.Partidas.remove(clave(jugador1.getNombre(), jugador2.getNombre()));
     }
 }
