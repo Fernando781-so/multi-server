@@ -55,44 +55,98 @@ public class UnCliente implements Runnable {
         String comando = partes[0].toUpperCase();
 
         switch (comando) {
-            case "/RANKING" -> salida.writeUTF(ServidorAsincrono.obtenerRanking());
 
+            // === CONSULTAR RANKING GENERAL ===
+            case "/RANKING" -> {
+                if (enPartida) {
+                    salida.writeUTF("🚫 No puedes consultar el ranking mientras estás jugando.");
+                    return;
+                }
+                salida.writeUTF(ServidorAsincrono.obtenerRanking());
+            }
+
+            // === CONSULTAR WINRATE ENTRE DOS JUGADORES ===
             case "/VERSUS" -> {
-                if (partes.length < 3) { salida.writeUTF("Uso: /versus <jugador1> <jugador2>"); return; }
+                if (enPartida) {
+                    salida.writeUTF("🚫 No puedes consultar el winrate mientras estás jugando.");
+                    return;
+                }
+                if (partes.length < 3) {
+                    salida.writeUTF("Uso: /versus <jugador1> <jugador2>");
+                    return;
+                }
                 salida.writeUTF(ServidorAsincrono.obtenerVs(partes[1], partes[2]));
             }
 
+            // === BLOQUEAR USUARIO ===
             case "/BLOQUEAR" -> {
-                if (nombre == null) { salida.writeUTF("No puedes bloquear sin iniciar sesión."); return; }
-                if (partes.length < 2) { salida.writeUTF("Uso: /bloquear <usuario>"); return; }
+                if (nombre == null) {
+                    salida.writeUTF("No puedes bloquear sin iniciar sesión.");
+                    return;
+                }
+                if (partes.length < 2) {
+                    salida.writeUTF("Uso: /bloquear <usuario>");
+                    return;
+                }
                 String user = partes[1];
-                if (user.equals(nombre)) { salida.writeUTF("No puedes bloquearte a ti mismo."); return; }
+                if (user.equals(nombre)) {
+                    salida.writeUTF("No puedes bloquearte a ti mismo.");
+                    return;
+                }
 
                 UnCliente target = buscarUsuario(user);
-                if (target == null) { salida.writeUTF("Usuario no encontrado."); return; }
-                if (enPartida && rival != null && rival.equals(user)) { salida.writeUTF("No puedes bloquear a tu rival mientras juegas."); return; }
+                if (target == null) {
+                    salida.writeUTF("Usuario no encontrado.");
+                    return;
+                }
+                if (enPartida && rival != null && rival.equals(user)) {
+                    salida.writeUTF("No puedes bloquear a tu rival mientras juegas.");
+                    return;
+                }
 
                 bloqueados.add(user);
                 salida.writeUTF("Has bloqueado a " + user);
             }
 
+            // === DESBLOQUEAR USUARIO ===
             case "/DESBLOQUEAR" -> {
-                if (partes.length < 2) { salida.writeUTF("Uso: /desbloquear <usuario>"); return; }
+                if (partes.length < 2) {
+                    salida.writeUTF("Uso: /desbloquear <usuario>");
+                    return;
+                }
                 String user = partes[1];
-                if (!bloqueados.contains(user)) { salida.writeUTF("Ese usuario no está bloqueado."); return; }
+                if (!bloqueados.contains(user)) {
+                    salida.writeUTF("Ese usuario no está bloqueado.");
+                    return;
+                }
                 bloqueados.remove(user);
                 salida.writeUTF("Has desbloqueado a " + user);
             }
 
+            // === PROPONER PARTIDA ===
             case "/GATO" -> {
-                if (nombre == null) { salida.writeUTF("Debes iniciar sesión para jugar."); return; }
-                if (partes.length < 2) { salida.writeUTF("Uso: /gato <usuario>"); return; }
+                if (nombre == null) {
+                    salida.writeUTF("Debes iniciar sesión para jugar.");
+                    return;
+                }
+                if (partes.length < 2) {
+                    salida.writeUTF("Uso: /gato <usuario>");
+                    return;
+                }
                 String oponente = partes[1];
                 UnCliente rivalCliente = buscarUsuario(oponente);
-                if (rivalCliente == null) { salida.writeUTF("Usuario no encontrado o no conectado."); return; }
-                if (bloqueados.contains(oponente)) { salida.writeUTF("Tienes bloqueado a ese usuario."); return; }
-                if (rivalCliente.bloqueados.contains(nombre)) { salida.writeUTF("Ese usuario te tiene bloqueado."); return; }
-
+                if (rivalCliente == null) {
+                    salida.writeUTF("Usuario no encontrado o no conectado.");
+                    return;
+                }
+                if (bloqueados.contains(oponente)) {
+                    salida.writeUTF("Tienes bloqueado a ese usuario.");
+                    return;
+                }
+                if (rivalCliente.bloqueados.contains(nombre)) {
+                    salida.writeUTF("Ese usuario te tiene bloqueado.");
+                    return;
+                }
                 if (rivalCliente.enPartida) {
                     salida.writeUTF("El usuario ya está en una partida.");
                     return;
@@ -102,11 +156,18 @@ public class UnCliente implements Runnable {
                 salida.writeUTF("Solicitud enviada a " + oponente);
             }
 
+            // === ACEPTAR PARTIDA ===
             case "/ACEPTAR" -> {
-                if (partes.length < 2) { salida.writeUTF("Uso: /aceptar <usuario>"); return; }
+                if (partes.length < 2) {
+                    salida.writeUTF("Uso: /aceptar <usuario>");
+                    return;
+                }
                 String quien = partes[1];
                 UnCliente jugador = buscarUsuario(quien);
-                if (jugador == null) { salida.writeUTF("No se encontró al usuario."); return; }
+                if (jugador == null) {
+                    salida.writeUTF("No se encontró al usuario.");
+                    return;
+                }
 
                 if (jugador.enPartida || enPartida) {
                     salida.writeUTF("Ya estás o el otro jugador está en una partida.");
@@ -119,11 +180,11 @@ public class UnCliente implements Runnable {
                 jugador.rival = this.nombre;
 
                 boolean empieza = new Random().nextBoolean();
-                String msg = "Comienza la partida entre " + nombre + " y " + quien + ". Empieza: " + (empieza ? nombre : quien);
+                String msg = "🎲 Comienza la partida entre " + nombre + " y " + quien + ". Empieza: " + (empieza ? nombre : quien);
                 jugador.salida.writeUTF(msg);
                 this.salida.writeUTF(msg);
 
-                // Simulación: decide ganador aleatorio
+                // Simulación del resultado
                 String resultado = new String[]{"gana1", "gana2", "empate"}[new Random().nextInt(3)];
                 ServidorAsincrono.registrarResultado(nombre, quien, resultado);
 
