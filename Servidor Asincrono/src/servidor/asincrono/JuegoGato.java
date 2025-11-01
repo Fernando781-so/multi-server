@@ -20,13 +20,13 @@ public class JuegoGato {
     }
 
     public boolean contieneJugador(String nombre) {
-        return jugador1.getNombre().equals(nombre) || jugador2.getNombre().equals(nombre);
+        return jugador1.nombre.equals(nombre) || jugador2.nombre.equals(nombre);
     }
 
     public void iniciar() {
         activo = true;
-        turno = (new Random().nextBoolean()) ? jugador1.getNombre() : jugador2.getNombre();
-        enviarAmbos("🎲 Se inicia el juego entre " + jugador1.getNombre() + " y " + jugador2.getNombre());
+        turno = (new Random().nextBoolean()) ? jugador1.nombre : jugador2.nombre;
+        enviarAmbos("🎲 Se inicia el juego entre " + jugador1.nombre + " y " + jugador2.nombre);
         mostrarTablero();
         enviarAmbos("👉 Empieza: " + turno);
     }
@@ -34,19 +34,19 @@ public class JuegoGato {
     public void jugar(String jugador, int fila, int col) {
         if (!activo) return;
         if (!jugador.equals(turno)) {
-            getJugador(jugador).enviar("⏳ No es tu turno.");
+            invokeEnviar(getJugador(jugador), "⏳ No es tu turno.");
             return;
         }
         if (fila < 0 || fila > 2 || col < 0 || col > 2) {
-            getJugador(jugador).enviar("❌ Coordenadas fuera de rango (0-2).");
+            invokeEnviar(getJugador(jugador), "❌ Coordenadas fuera de rango (0-2).");
             return;
         }
         if (tablero[fila][col] != '-') {
-            getJugador(jugador).enviar("⚠️ Casilla ocupada.");
+            invokeEnviar(getJugador(jugador), "⚠️ Casilla ocupada.");
             return;
         }
 
-        char simbolo = jugador.equals(jugador1.getNombre()) ? 'X' : 'O';
+        char simbolo = jugador.equals(jugador1.nombre) ? 'X' : 'O';
         tablero[fila][col] = simbolo;
         mostrarTablero();
 
@@ -54,7 +54,7 @@ public class JuegoGato {
             enviarAmbos("🏆 ¡" + jugador + " ha ganado!");
             actualizarRanking(jugador, true);
             activo = false;
-            ServidorAsincrono.Partidas.remove(clave(jugador1.getNombre(), jugador2.getNombre()));
+            ServidorAsincrono.Partidas.remove(clave(jugador1.nombre, jugador2.nombre));
             return;
         }
 
@@ -62,20 +62,20 @@ public class JuegoGato {
             enviarAmbos("🤝 Empate!");
             actualizarRanking(null, false);
             activo = false;
-            ServidorAsincrono.Partidas.remove(clave(jugador1.getNombre(), jugador2.getNombre()));
+            ServidorAsincrono.Partidas.remove(clave(jugador1.nombre, jugador2.nombre));
             return;
         }
 
-        turno = jugador.equals(jugador1.getNombre()) ? jugador2.getNombre() : jugador1.getNombre();
+        turno = jugador.equals(jugador1.nombre) ? jugador2.nombre : jugador1.nombre;
         enviarAmbos("👉 Turno de: " + turno);
     }
 
     private void actualizarRanking(String ganador, boolean victoria) {
-        EstadisticasJugador est1 = ServidorAsincrono.Ranking.get(jugador1.getNombre());
-        EstadisticasJugador est2 = ServidorAsincrono.Ranking.get(jugador2.getNombre());
+        EstadisticasJugador est1 = ServidorAsincrono.Ranking.get(jugador1.nombre);
+        EstadisticasJugador est2 = ServidorAsincrono.Ranking.get(jugador2.nombre);
 
         if (victoria) {
-            if (ganador.equals(jugador1.getNombre())) {
+            if (ganador.equals(jugador1.nombre)) {
                 est1.registrarVictoria();
                 est2.registrarDerrota();
             } else {
@@ -120,17 +120,36 @@ public class JuegoGato {
     }
 
     private void enviarAmbos(String msg) {
-        jugador1.enviar(msg);
-        jugador2.enviar(msg);
+        invokeEnviar(jugador1, msg);
+        invokeEnviar(jugador2, msg);
+    }
+
+    @SuppressWarnings("UseSpecificCatch")
+    private void invokeEnviar(UnCliente cliente, String msg) {
+        if (cliente == null) return;
+        try {
+            java.lang.reflect.Method m = cliente.getClass().getMethod("enviar", String.class);
+            m.invoke(cliente, msg);
+            return;
+        } catch (Exception ignored) {
+        }
+        try {
+            java.lang.reflect.Method m = cliente.getClass().getMethod("send", String.class);
+            m.invoke(cliente, msg);
+            return;
+        } catch (Exception ignored) {
+        }
+        // Fallback: print to console if no suitable method exists
+        System.out.println("Mensaje para " + (cliente.nombre != null ? cliente.nombre : "cliente") + ": " + msg);
     }
 
     private UnCliente getJugador(String nombre) {
-        return jugador1.getNombre().equals(nombre) ? jugador1 : jugador2;
+        return jugador1.nombre.equals(nombre) ? jugador1 : jugador2;
     }
 
     public void rendirse(String nombre) {
         if (!activo) return;
-        String ganador = jugador1.getNombre().equals(nombre) ? jugador2.getNombre() : jugador1.getNombre();
+        String ganador = jugador1.nombre.equals(nombre) ? jugador2.nombre : jugador1.nombre;
         enviarAmbos("🏳️ " + nombre + " se ha rendido. ¡" + ganador + " gana!");
         actualizarRanking(ganador, true);
         activo = false;

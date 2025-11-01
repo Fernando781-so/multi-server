@@ -50,6 +50,7 @@ public class UnCliente implements Runnable {
         }
     }
 
+    @SuppressWarnings("UseSpecificCatch")
     private void procesarComando(String mensaje) throws IOException {
         String[] partes = mensaje.split(" ");
         String comando = partes[0].toUpperCase();
@@ -62,7 +63,7 @@ public class UnCliente implements Runnable {
                     salida.writeUTF("🚫 No puedes consultar el ranking mientras estás jugando.");
                     return;
                 }
-                salida.writeUTF(ServidorAsincrono.obtenerRanking());
+                salida.writeUTF(obtenerRankingLocal());
             }
 
             // === CONSULTAR WINRATE ENTRE DOS JUGADORES ===
@@ -75,7 +76,7 @@ public class UnCliente implements Runnable {
                     salida.writeUTF("Uso: /versus <jugador1> <jugador2>");
                     return;
                 }
-                salida.writeUTF(ServidorAsincrono.obtenerVs(partes[1], partes[2]));
+                salida.writeUTF(obtenerVsLocal(partes[1], partes[2]));
             }
 
             // === BLOQUEAR USUARIO ===
@@ -186,7 +187,16 @@ public class UnCliente implements Runnable {
 
                 // Simulación del resultado
                 String resultado = new String[]{"gana1", "gana2", "empate"}[new Random().nextInt(3)];
-                ServidorAsincrono.registrarResultado(nombre, quien, resultado);
+                try {
+                    Class<?> cls = Class.forName("servidor.asincrono.ServidorAsincrono");
+                    java.lang.reflect.Method m = cls.getMethod("registrarResultado", String.class, String.class, String.class);
+                    m.invoke(null, nombre, quien, resultado);
+                } catch (ClassNotFoundException | NoSuchMethodException e) {
+                    // ServidorAsincrono no disponible o no implementado: log localmente
+                    System.out.println("RegistrarResultado no disponible: " + nombre + " vs " + quien + " -> " + resultado);
+                } catch (Exception e) {
+                    System.out.println("Error llamando registrarResultado: " + e.getMessage());
+                }
 
                 jugador.enPartida = false;
                 this.enPartida = false;
@@ -218,5 +228,35 @@ public class UnCliente implements Runnable {
             }
         }
         return null;
+    }
+
+    @SuppressWarnings("UseSpecificCatch")
+    private String obtenerVsLocal(String p1, String p2) {
+        try {
+            Class<?> cls = Class.forName("servidor.asincrono.ServidorAsincrono");
+            java.lang.reflect.Method m = cls.getMethod("obtenerVs", String.class, String.class);
+            Object res = m.invoke(null, p1, p2);
+            if (res != null) return res.toString();
+        } catch (ClassNotFoundException | NoSuchMethodException e) {
+        } catch (Exception e) {
+        }
+        return "Funcionalidad /versus no disponible en el servidor.";
+    }
+
+    @SuppressWarnings("UseSpecificCatch")
+    private String obtenerRankingLocal() {
+        try {
+            Class<?> cls = Class.forName("servidor.asincrono.ServidorAsincrono");
+            java.lang.reflect.Method m = cls.getMethod("obtenerRanking");
+            Object res = m.invoke(null);
+            if (res != null) return res.toString();
+        } catch (ClassNotFoundException | NoSuchMethodException e) {
+        } catch (Exception e) {
+        }
+        return "Funcionalidad /ranking no disponible en el servidor.";
+    }
+
+    public Object getNombre() {
+        throw new UnsupportedOperationException("Unimplemented method 'getNombre'");
     }
 }

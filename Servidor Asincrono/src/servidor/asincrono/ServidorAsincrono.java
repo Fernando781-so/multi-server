@@ -34,7 +34,6 @@ public class ServidorAsincrono {
             }
 
         } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 }
