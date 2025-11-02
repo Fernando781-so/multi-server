@@ -57,9 +57,9 @@ public class ServidorAsincrono {
         EstadisticasJugador p2 = Ranking.get(j2);
 
         switch (resultado) {
-            case "gana1" -> { p1.victoria(); p2.derrota(); }
-            case "gana2" -> { p2.victoria(); p1.derrota(); }
-            case "empate" -> { p1.empate(); p2.empate(); }
+            case "gana1" -> { p1.registrarVictoria(); p2.registrarDerrota(); }
+            case "gana2" -> { p2.registrarVictoria(); p1.registrarDerrota(); }
+            case "empate" -> { p1.registrarEmpate(); p2.registrarEmpate(); }
         }
     }
 
