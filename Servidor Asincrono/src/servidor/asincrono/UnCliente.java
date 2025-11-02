@@ -11,8 +11,8 @@ public class UnCliente implements Runnable {
     final DataOutputStream salida;
     final String nombre;
     private final Set<String> bloqueados = new HashSet<>();
-    private String rival = null;
-    private boolean enPartida = false;
+    private final String rival = null;
+    private final boolean enPartida = false;
 
     private String grupoActual = "Todos";
 
@@ -148,7 +148,6 @@ public class UnCliente implements Runnable {
                 salida.writeUTF("🗑️ Grupo '" + g + "' eliminado.");
             }
 
-            // === NUEVO: listar miembros del grupo actual ===
             case "/MIEMBROS" -> {
                 GrupoChat grupo = ServidorAsincrono.Grupos.get(grupoActual);
                 salida.writeUTF("👥 Miembros del grupo '" + grupoActual + "':");
@@ -156,7 +155,6 @@ public class UnCliente implements Runnable {
                     salida.writeUTF("• " + m);
                 }
             }
-
             default -> salida.writeUTF("Comando no reconocido.");
         }
     }

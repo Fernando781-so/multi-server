@@ -49,7 +49,6 @@ public class ServidorAsincrono {
         }
     }
 
-    // === Métodos de ranking (ya usados por UnCliente) ===
     public static void registrarResultado(String j1, String j2, String resultado) {
         Ranking.putIfAbsent(j1, new EstadisticasJugador(j1));
         Ranking.putIfAbsent(j2, new EstadisticasJugador(j2));
