@@ -14,6 +14,8 @@ public class UnCliente implements Runnable {
     private String rival = null;
     private boolean enPartida = false;
 
+    private String grupoActual = "Todos";
+
     public UnCliente(Socket s, String nombre) throws IOException {
         this.socket = s;
         this.nombre = nombre;
@@ -32,12 +34,7 @@ public class UnCliente implements Runnable {
                 if (mensaje.startsWith("/")) {
                     procesarComando(mensaje);
                 } else {
-                    if (enPartida && rival != null) {
-                        UnCliente otro = buscarUsuario(rival);
-                        if (otro != null) otro.salida.writeUTF(nombre + " (Gato): " + mensaje);
-                    } else {
-                        broadcast(nombre + ": " + mensaje);
-                    }
+                    enviarAGrupoActual(nombre + ": " + mensaje);
                 }
             }
         } catch (IOException e) {
@@ -45,28 +42,26 @@ public class UnCliente implements Runnable {
         } finally {
             try { socket.close(); } catch (IOException ignored) {}
             synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-                ServidorAsincrono.Clientes.remove(socket.getRemoteSocketAddress().toString());
+                ServidorAsincrono.Clientes.remove(nombre);
+                ServidorAsincrono.Grupos.get(grupoActual).salir(nombre);
             }
         }
     }
 
-    @SuppressWarnings("UseSpecificCatch")
     private void procesarComando(String mensaje) throws IOException {
         String[] partes = mensaje.split(" ");
         String comando = partes[0].toUpperCase();
 
         switch (comando) {
 
-            // === CONSULTAR RANKING GENERAL ===
             case "/RANKING" -> {
                 if (enPartida) {
                     salida.writeUTF("🚫 No puedes consultar el ranking mientras estás jugando.");
                     return;
                 }
-                salida.writeUTF(obtenerRankingLocal());
+                salida.writeUTF(ServidorAsincrono.obtenerRanking());
             }
 
-            // === CONSULTAR WINRATE ENTRE DOS JUGADORES ===
             case "/VERSUS" -> {
                 if (enPartida) {
                     salida.writeUTF("🚫 No puedes consultar el winrate mientras estás jugando.");
@@ -76,187 +71,104 @@ public class UnCliente implements Runnable {
                     salida.writeUTF("Uso: /versus <jugador1> <jugador2>");
                     return;
                 }
-                salida.writeUTF(obtenerVsLocal(partes[1], partes[2]));
+                salida.writeUTF(ServidorAsincrono.obtenerVs(partes[1], partes[2]));
             }
 
-            // === BLOQUEAR USUARIO ===
-            case "/BLOQUEAR" -> {
-                if (nombre == null) {
-                    salida.writeUTF("No puedes bloquear sin iniciar sesión.");
-                    return;
+            // ==== GRUPOS ====
+            case "/GRUPOS" -> {
+                salida.writeUTF("📚 Grupos disponibles:");
+                for (String g : ServidorAsincrono.Grupos.keySet()) {
+                    salida.writeUTF("- " + g);
                 }
-                if (partes.length < 2) {
-                    salida.writeUTF("Uso: /bloquear <usuario>");
-                    return;
-                }
-                String user = partes[1];
-                if (user.equals(nombre)) {
-                    salida.writeUTF("No puedes bloquearte a ti mismo.");
-                    return;
-                }
-
-                UnCliente target = buscarUsuario(user);
-                if (target == null) {
-                    salida.writeUTF("Usuario no encontrado.");
-                    return;
-                }
-                if (enPartida && rival != null && rival.equals(user)) {
-                    salida.writeUTF("No puedes bloquear a tu rival mientras juegas.");
-                    return;
-                }
-
-                bloqueados.add(user);
-                salida.writeUTF("Has bloqueado a " + user);
             }
 
-            // === DESBLOQUEAR USUARIO ===
-            case "/DESBLOQUEAR" -> {
+            case "/CREARGRUPO" -> {
                 if (partes.length < 2) {
-                    salida.writeUTF("Uso: /desbloquear <usuario>");
+                    salida.writeUTF("Uso: /creargrupo <nombre>");
                     return;
                 }
-                String user = partes[1];
-                if (!bloqueados.contains(user)) {
-                    salida.writeUTF("Ese usuario no está bloqueado.");
+                String nuevo = partes[1];
+                if (nuevo.equalsIgnoreCase("Todos")) {
+                    salida.writeUTF("🚫 No puedes crear un grupo llamado 'Todos'.");
                     return;
                 }
-                bloqueados.remove(user);
-                salida.writeUTF("Has desbloqueado a " + user);
+                ServidorAsincrono.Grupos.putIfAbsent(nuevo, new GrupoChat(nuevo));
+                salida.writeUTF("✅ Grupo '" + nuevo + "' creado o ya existente.");
             }
 
-            // === PROPONER PARTIDA ===
-            case "/GATO" -> {
-                if (nombre == null) {
-                    salida.writeUTF("Debes iniciar sesión para jugar.");
-                    return;
-                }
+            case "/UNIR" -> {
                 if (partes.length < 2) {
-                    salida.writeUTF("Uso: /gato <usuario>");
+                    salida.writeUTF("Uso: /unir <grupo>");
                     return;
                 }
-                String oponente = partes[1];
-                UnCliente rivalCliente = buscarUsuario(oponente);
-                if (rivalCliente == null) {
-                    salida.writeUTF("Usuario no encontrado o no conectado.");
+                String nombreGrupo = partes[1];
+                GrupoChat grupo = ServidorAsincrono.Grupos.get(nombreGrupo);
+                if (grupo == null) {
+                    salida.writeUTF("❌ No existe ese grupo.");
                     return;
                 }
-                if (bloqueados.contains(oponente)) {
-                    salida.writeUTF("Tienes bloqueado a ese usuario.");
-                    return;
+                grupo.unir(nombre);
+                grupoActual = nombreGrupo;
+                salida.writeUTF("📥 Te uniste al grupo: " + nombreGrupo);
+                for (String msg : grupo.obtenerMensajesNoVistos()) {
+                    salida.writeUTF("[Historial] " + msg);
                 }
-                if (rivalCliente.bloqueados.contains(nombre)) {
-                    salida.writeUTF("Ese usuario te tiene bloqueado.");
-                    return;
-                }
-                if (rivalCliente.enPartida) {
-                    salida.writeUTF("El usuario ya está en una partida.");
-                    return;
-                }
-
-                rivalCliente.salida.writeUTF(nombre + " te ha propuesto jugar al gato. Acepta con /aceptar " + nombre);
-                salida.writeUTF("Solicitud enviada a " + oponente);
             }
 
-            // === ACEPTAR PARTIDA ===
-            case "/ACEPTAR" -> {
+            case "/SALIRGRUPO" -> {
+                if (grupoActual.equals("Todos")) {
+                    salida.writeUTF("🚫 No puedes salir del grupo 'Todos'.");
+                    return;
+                }
+                ServidorAsincrono.Grupos.get(grupoActual).salir(nombre);
+                grupoActual = "Todos";
+                salida.writeUTF("↩️ Has regresado al grupo 'Todos'.");
+            }
+
+            case "/BORRARGRUPO" -> {
                 if (partes.length < 2) {
-                    salida.writeUTF("Uso: /aceptar <usuario>");
+                    salida.writeUTF("Uso: /borrargrupo <nombre>");
                     return;
                 }
-                String quien = partes[1];
-                UnCliente jugador = buscarUsuario(quien);
-                if (jugador == null) {
-                    salida.writeUTF("No se encontró al usuario.");
+                String g = partes[1];
+                if (g.equalsIgnoreCase("Todos")) {
+                    salida.writeUTF("🚫 No se puede borrar el grupo 'Todos'.");
                     return;
                 }
-
-                if (jugador.enPartida || enPartida) {
-                    salida.writeUTF("Ya estás o el otro jugador está en una partida.");
+                GrupoChat grupo = ServidorAsincrono.Grupos.get(g);
+                if (grupo == null) {
+                    salida.writeUTF("❌ No existe el grupo.");
                     return;
                 }
-
-                this.enPartida = true;
-                this.rival = quien;
-                jugador.enPartida = true;
-                jugador.rival = this.nombre;
-
-                boolean empieza = new Random().nextBoolean();
-                String msg = "🎲 Comienza la partida entre " + nombre + " y " + quien + ". Empieza: " + (empieza ? nombre : quien);
-                jugador.salida.writeUTF(msg);
-                this.salida.writeUTF(msg);
-
-                // Simulación del resultado
-                String resultado = new String[]{"gana1", "gana2", "empate"}[new Random().nextInt(3)];
-                try {
-                    Class<?> cls = Class.forName("servidor.asincrono.ServidorAsincrono");
-                    java.lang.reflect.Method m = cls.getMethod("registrarResultado", String.class, String.class, String.class);
-                    m.invoke(null, nombre, quien, resultado);
-                } catch (ClassNotFoundException | NoSuchMethodException e) {
-                    // ServidorAsincrono no disponible o no implementado: log localmente
-                    System.out.println("RegistrarResultado no disponible: " + nombre + " vs " + quien + " -> " + resultado);
-                } catch (Exception e) {
-                    System.out.println("Error llamando registrarResultado: " + e.getMessage());
+                if (!grupo.estaVacio()) {
+                    salida.writeUTF("⚠️ No se puede borrar, aún tiene miembros.");
+                    return;
                 }
+                ServidorAsincrono.Grupos.remove(g);
+                salida.writeUTF("🗑️ Grupo '" + g + "' eliminado.");
+            }
 
-                jugador.enPartida = false;
-                this.enPartida = false;
-                jugador.rival = null;
-                this.rival = null;
-
-                jugador.salida.writeUTF("Partida finalizada. Resultado: " + resultado);
-                this.salida.writeUTF("Partida finalizada. Resultado: " + resultado);
+            // === NUEVO: listar miembros del grupo actual ===
+            case "/MIEMBROS" -> {
+                GrupoChat grupo = ServidorAsincrono.Grupos.get(grupoActual);
+                salida.writeUTF("👥 Miembros del grupo '" + grupoActual + "':");
+                for (String m : grupo.getMiembros()) {
+                    salida.writeUTF("• " + m);
+                }
             }
 
             default -> salida.writeUTF("Comando no reconocido.");
         }
     }
 
-    private void broadcast(String mensaje) throws IOException {
-        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            for (UnCliente c : ServidorAsincrono.Clientes.values()) {
-                if (c != this && !c.bloqueados.contains(this.nombre)) {
-                    c.salida.writeUTF(mensaje);
-                }
+    private void enviarAGrupoActual(String msg) throws IOException {
+        GrupoChat grupo = ServidorAsincrono.Grupos.get(grupoActual);
+        grupo.agregarMensaje(msg);
+        for (String usuario : grupo.getMiembros()) {
+            if (!usuario.equals(nombre)) {
+                UnCliente c = ServidorAsincrono.Clientes.get(usuario);
+                if (c != null) c.salida.writeUTF(msg);
             }
         }
-    }
-
-    private UnCliente buscarUsuario(String user) {
-        synchronized (ServidorAsincrono.CLIENTE_LOCK) {
-            for (UnCliente c : ServidorAsincrono.Clientes.values()) {
-                if (user != null && user.equals(c.nombre)) return c;
-            }
-        }
-        return null;
-    }
-
-    @SuppressWarnings("UseSpecificCatch")
-    private String obtenerVsLocal(String p1, String p2) {
-        try {
-            Class<?> cls = Class.forName("servidor.asincrono.ServidorAsincrono");
-            java.lang.reflect.Method m = cls.getMethod("obtenerVs", String.class, String.class);
-            Object res = m.invoke(null, p1, p2);
-            if (res != null) return res.toString();
-        } catch (ClassNotFoundException | NoSuchMethodException e) {
-        } catch (Exception e) {
-        }
-        return "Funcionalidad /versus no disponible en el servidor.";
-    }
-
-    @SuppressWarnings("UseSpecificCatch")
-    private String obtenerRankingLocal() {
-        try {
-            Class<?> cls = Class.forName("servidor.asincrono.ServidorAsincrono");
-            java.lang.reflect.Method m = cls.getMethod("obtenerRanking");
-            Object res = m.invoke(null);
-            if (res != null) return res.toString();
-        } catch (ClassNotFoundException | NoSuchMethodException e) {
-        } catch (Exception e) {
-        }
-        return "Funcionalidad /ranking no disponible en el servidor.";
-    }
-
-    public Object getNombre() {
-        throw new UnsupportedOperationException("Unimplemented method 'getNombre'");
     }
 }
