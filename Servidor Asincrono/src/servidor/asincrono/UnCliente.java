@@ -31,8 +31,9 @@ public final class UnCliente extends Thread {
             salida = new DataOutputStream(s.getOutputStream());
             // initial anonymous name assigned; client may send /login immediately
             this.nombre = "Invitado_" + new Random().nextInt(10000);
-            enviar("👋 Bienvenido. Has entrado como '" + nombre + "' (invitado). Puedes enviar 3 mensajes. Usa /login <nombre> para registrarte.");
-            // unir al grupo Todos
+            enviar("👋 Bienvenido. Has entrado como '" + nombre + "' (invitado). Puedes enviar 3 mensajes. Usa /login <nombre> para registrarte.\n"
+                  +"Si necesitas ver los comando para comunicarse o hacer una accion escribe /ayuda para ver todos los comando y como se usan.");
+
             ((GrupoChat) ServidorAsincrono.Grupos.get("Todos")).unir(nombre);
             ServidorAsincrono.Clientes.put(nombre, this);
         } catch (IOException e) {
@@ -55,7 +56,6 @@ public final class UnCliente extends Thread {
                 if (linea == null) break;
                 linea = linea.trim();
                 if (linea.isEmpty()) continue;
-
                 if (linea.startsWith("/")) {
                     procesarComando(linea);
                 } else {
