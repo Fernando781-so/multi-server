@@ -6,23 +6,23 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class ServidorAsincrono {
-    public static final int PUERTO = 6000;
 
     // Estado global
-    public static final Map<String, UnCliente> Clientes = new ConcurrentHashMap<>();
-    public static final Map<String, JuegoGato> Partidas = new ConcurrentHashMap<>();
-    public static final Map<String, EstadisticasJugador> Ranking = new ConcurrentHashMap<>();
-    public static final Map<String, String> SolicitudesPendientes = new ConcurrentHashMap<>();
-    public static final Map<String, GrupoChat> Grupos = new ConcurrentHashMap<>();
+    public static final Object CLIENTE_LOCK = new Object();
+    public static final Map<String, String> SolicitudesPendientes = new HashMap<>();
+    public static Map<String, UnCliente> Clientes = new ConcurrentHashMap<>();
+    public static Map<String, EstadisticasJugador> Ranking = new ConcurrentHashMap<>();
+    public static Map<String, JuegoGato> Partidas = new ConcurrentHashMap<>();
+    public static Map<String, String> GruposUsuarios = new ConcurrentHashMap<>();
+    public static Map<String, Set<String>> Bloqueos = new ConcurrentHashMap<>();
+    public static Map<String, String> Usuarios = new ConcurrentHashMap<>();
+    public static Map<String, GrupoChat> Grupos = new ConcurrentHashMap<>();
 
-    static {
-        // Grupo "Todos" siempre existe
-        Grupos.put("Todos", new GrupoChat("Todos"));
-    }
 
     public static void main(String[] args) {
-        System.out.println("Servidor iniciado en puerto " + PUERTO);
-        try (ServerSocket ss = new ServerSocket(PUERTO)) {
+        inicializarGrupos();
+        System.out.println("Servidor iniciado en puerto 8080");
+        try (ServerSocket ss = new ServerSocket(8080)) {
             while (true) {
                 Socket s = ss.accept();
                 // Crear hilo para cada conexión
@@ -30,11 +30,28 @@ public class ServidorAsincrono {
                 cliente.start();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.out.println("Error al iniciar el servidor: " + e.getMessage());
         }
     }
 
-    // ---------------- Partidas ----------------
+  public static void inicializarGrupos() {
+        Grupos.put("Todos", new GrupoChat("Todos"));
+
+    }
+
+   public static void enviarAGrupo(UnCliente remitente, String mensaje) throws IOException {
+        String grupo = GruposUsuarios.getOrDefault(remitente.nombre, "Todos");
+        GrupoChat chat = Grupos.get(grupo);
+
+        synchronized (CLIENTE_LOCK) {
+            for (String miembro : chat.getMiembros()) {
+                UnCliente cli = Clientes.get(miembro);
+                if (cli != null && !cli.bloqueados.contains(remitente.nombre)) {
+                    cli.salida.writeUTF(mensaje);
+                }
+            }
+        }
+    }
 
     // Inicia una partida privada entre j1 (retador) y j2 (aceptante)
     public static synchronized void iniciarPartida(UnCliente j1, UnCliente j2) {
@@ -150,7 +167,7 @@ public static void finalizarPartidaPorDesconexion(String jugador) {
         COMANDOS (agrupados):
         SESIÓN:
           /login <nombre>           - iniciar sesión (invitados pueden usar hasta 3 mensajes antes)
-          /salir                    - desconectarse (no permitido durante partida; rendirse primero)
+          /desconectarse                    - desconectarse (no permitido durante partida; rendirse primero)
 
         GRUPOS:
           /grupos                   - listar grupos

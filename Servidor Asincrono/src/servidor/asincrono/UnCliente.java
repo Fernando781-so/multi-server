@@ -33,20 +33,17 @@ public final class UnCliente extends Thread {
             this.nombre = "Invitado_" + new Random().nextInt(10000);
             enviar("👋 Bienvenido. Has entrado como '" + nombre + "' (invitado). Puedes enviar 3 mensajes. Usa /login <nombre> para registrarte.");
             // unir al grupo Todos
-            ServidorAsincrono.Grupos.get("Todos").unir(nombre);
-            // register client under temporary key (so other code can find by this.nombre)
+            ((GrupoChat) ServidorAsincrono.Grupos.get("Todos")).unir(nombre);
             ServidorAsincrono.Clientes.put(nombre, this);
         } catch (IOException e) {
             System.out.println("Error al crear cliente: " + e.getMessage());
         }
     }
 
-    // enviar mensaje al socket
     public synchronized void enviar(String m) {
         try {
             salida.writeUTF(m);
         } catch (IOException e) {
-            // si falla al escribir, cerrar conexión (sera manejado en run)
         }
     }
 
@@ -95,43 +92,67 @@ public final class UnCliente extends Thread {
 
         try {
             switch (cmd) {
-              case "/LOGIN" -> {
+                case "/login" -> {
+                    // Si ya inició sesión con un nombre real
                     if (this.nombre != null && !this.nombre.startsWith("Invitado")) {
-                        salida.writeUTF("⚠️ Ya has iniciado sesión como " + this.nombre);
+                        enviar("⚠️ Ya has iniciado sesión como " + this.nombre);
                         return;
                     }
 
                     if (partes.length < 2) {
-                        salida.writeUTF("Uso: /login <usuario>");
+                        enviar("Uso: /login <usuario>");
                         return;
                     }
 
                     String nuevoNombre = partes[1].trim();
 
+                    // Verificar que el nombre no esté en uso
                     if (ServidorAsincrono.Clientes.containsKey(nuevoNombre)) {
-                        salida.writeUTF("❌ Ese nombre ya está en uso.");
+                        enviar("❌ Ese nombre ya está en uso.");
                         return;
                     }
 
-                    synchronized (ServidorAsincrono.Clientes) {
+                    synchronized (ServidorAsincrono.class) {
+                        // Eliminar antiguo nombre del mapa de clientes
                         ServidorAsincrono.Clientes.remove(this.nombre);
+                        // Asignar nuevo nombre
                         ServidorAsincrono.Clientes.put(nuevoNombre, this);
                     }
 
+                    // Inicializar ranking si no existía
                     ServidorAsincrono.Ranking.putIfAbsent(nuevoNombre, new EstadisticasJugador());
 
-                    salida.writeUTF("✅ Sesión iniciada como: " + nuevoNombre);
-                    System.out.println("🔑 " + this.nombre + " ahora es " + nuevoNombre);
+                    // 🔹 CAMBIO CLAVE: dejar de ser invitado
+                    this.esAnonimo = false;
+                    this.mensajesAnonimos = 0;
 
-                    // Actualizar nombre interno
+                    enviar("✅ Sesión iniciada como: " + nuevoNombre);
+                    System.out.println("🔑 Usuario '" + this.nombre + "' ahora es '" + nuevoNombre + "'");
+
+                    // Actualizar nombre interno de la instancia
                     try {
                         java.lang.reflect.Field f = this.getClass().getDeclaredField("nombre");
                         f.setAccessible(true);
                         f.set(this, nuevoNombre);
                     } catch (Exception ignored) {}
+
+                    ServidorAsincrono.Grupos.putIfAbsent("Todos", new GrupoChat("Todos"));
+                    GrupoChat grupoTodos = (GrupoChat) ServidorAsincrono.Grupos.get("Todos");
+
+                    if (!grupoTodos.getMiembros().contains(nuevoNombre)) {
+                        grupoTodos.unir(nuevoNombre);
+                    }
+
+                    this.grupoActual = "Todos";
+
+                    enviar("📥 Te has unido al grupo 'Todos'. Mostrando últimos mensajes:");
+                    for (String msg : grupoTodos.obtenerMensajesNoVistos()) {
+                        enviar("[Historial] " + msg);
+                    }
                 }
 
-                case "/salir" -> {
+
+                case "/desconectarse" -> {
                     if (enPartida) {
                         enviar("🚫 No puedes desconectarte durante una partida. Usa /rendirse si quieres abandonar.");
                         return;
@@ -163,10 +184,10 @@ public final class UnCliente extends Thread {
                     GrupoChat grupo = ServidorAsincrono.Grupos.get(g);
                     if (grupo == null) { enviar("❌ Grupo no existe."); return; }
                     if (esAnonimo && !"Todos".equals(g)) { enviar("🚫 Invitados solo pueden unirse a 'Todos'."); return; }
-                    grupo.unir(nombre);
+                    ((GrupoChat) grupo).unir(nombre);
                     grupoActual = g;
                     enviar("📥 Te has unido a '" + g + "'. Mostrando últimos mensajes:");
-                    for (String msg : grupo.obtenerMensajesNoVistos()) enviar("[Historial] " + msg);
+                    for (String msg : ((GrupoChat) grupo).obtenerMensajesNoVistos()) enviar("[Historial] " + msg);
                 }
 
                 case "/salirgrupo" -> {
@@ -183,7 +204,7 @@ public final class UnCliente extends Thread {
                     if (partes.length < 2) { enviar("Uso: /borrargrupo <nombre>"); return; }
                     String g = partes[1].trim();
                     if (g.equalsIgnoreCase("Todos")) { enviar("🚫 No se puede borrar 'Todos'."); return; }
-                    GrupoChat grupo = ServidorAsincrono.Grupos.get(g);
+                    GrupoChat grupo = (GrupoChat) ServidorAsincrono.Grupos.get(g);
                     if (grupo == null) { enviar("❌ No existe."); return; }
                     if (!grupo.estaVacio()) { enviar("⚠️ No se puede borrar: aún tiene miembros."); return; }
                     ServidorAsincrono.Grupos.remove(g);
@@ -191,7 +212,7 @@ public final class UnCliente extends Thread {
                 }
 
                 case "/miembros" -> {
-                    GrupoChat grupo = ServidorAsincrono.Grupos.get(grupoActual);
+                    GrupoChat grupo = (GrupoChat) ServidorAsincrono.Grupos.get(grupoActual);
                     if (grupo == null) { enviar("❌ Grupo actual inválido."); return; }
                     enviar("👥 Miembros de '" + grupoActual + "': " + grupo.getMiembros());
                 }
@@ -281,7 +302,7 @@ public final class UnCliente extends Thread {
     }
 
     private void enviarAGrupo(String mensaje) {
-        GrupoChat g = ServidorAsincrono.Grupos.get(grupoActual);
+        GrupoChat g = (GrupoChat) ServidorAsincrono.Grupos.get(grupoActual);
         if (g == null) return;
         g.agregarMensaje(mensaje);
         for (String miembro : g.getMiembros()) {
@@ -295,10 +316,10 @@ public final class UnCliente extends Thread {
     }
 
     private void cambiarGrupoInterno(String nuevo) {
-        GrupoChat old = ServidorAsincrono.Grupos.get(grupoActual);
+        GrupoChat old = (GrupoChat) ServidorAsincrono.Grupos.get(grupoActual);
         if (old != null) old.salir(nombre);
         grupoActual = nuevo;
-        GrupoChat g = ServidorAsincrono.Grupos.get(nuevo);
+        GrupoChat g = (GrupoChat) ServidorAsincrono.Grupos.get(nuevo);
         if (g != null) g.unir(nombre);
     }
 
@@ -322,7 +343,7 @@ public final class UnCliente extends Thread {
     private void cerrar() {
         try {
             // salir de grupo
-            GrupoChat g = ServidorAsincrono.Grupos.get(grupoActual);
+            GrupoChat g = (GrupoChat) ServidorAsincrono.Grupos.get(grupoActual);
             if (g != null) g.salir(nombre);
             // remover cliente
             ServidorAsincrono.Clientes.remove(nombre);
