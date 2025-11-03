@@ -151,13 +151,24 @@ public final class UnCliente extends Thread {
                     }
                 }
 
+                    case "/conectados" -> {
+                        StringBuilder sb = new StringBuilder("🟢 Usuarios conectados y sus grupos:\n");
+                        for (Map.Entry<String, UnCliente> entry : ServidorAsincrono.Clientes.entrySet()) {
+                            UnCliente c = entry.getValue();
+                            sb.append("- ").append(c.nombre)
+                            .append(" => Grupo: ").append(c.grupoActual)
+                            .append(c.esAnonimo ? " (Invitado)" : "")
+                            .append("\n");
+                        }
+                        enviar(sb.toString());
+                    }
 
                 case "/desconectarse" -> {
                     if (enPartida) {
                         enviar("🚫 No puedes desconectarte durante una partida. Usa /rendirse si quieres abandonar.");
                         return;
                     }
-                    enviar("👋 Desconexando...");
+                    enviar("👋 Desconectando...");
                     cerrar();
                 }
 

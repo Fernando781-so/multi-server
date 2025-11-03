@@ -15,16 +15,22 @@ public class paraMandar implements Runnable {
     }
 
     @Override
-    public void run() {
-        try {
-            while (true) {
-                String mensaje = teclado.readLine();
-                salida.writeUTF(mensaje);
+public void run() {
+    try {
+        while (true) {
+            String mensaje = teclado.readLine();  // leer desde consola
+            if (mensaje == null) {                 // Ctrl+Z o EOF detectado
+                System.out.println("Entrada EOF detectada, cerrando conexión...");
+                salida.writeUTF("/desconectarse"); // opcional: notificar al servidor
+                break;                              // salir del hilo
             }
-        } catch (IOException ex) {
-            System.out.println("Error al enviar mensaje.");
+            salida.writeUTF(mensaje);               // enviar al servidor
         }
+    } catch (IOException e) {
+        System.out.println("Error al enviar mensaje: " + e.getMessage());
     }
+}
+
 }
 
 

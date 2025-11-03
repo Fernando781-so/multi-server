@@ -179,6 +179,7 @@ public static void finalizarPartidaPorDesconexion(String jugador) {
 
         CHAT:
           (mensaje normal)          - envía al grupo actual (invitados solo en Todos)
+          /conectados               - listar usuarios conectados
           /bloquear <usuario>       - bloquear (no recibir mensajes de ese usuario)
           /desbloquear <usuario>    - desbloquear
 
