@@ -2,171 +2,151 @@ package servidor.asincrono;
 
 import java.io.*;
 import java.net.*;
-import java.util.*;
 
-public class UnCliente implements Runnable {
+public class UnCliente extends Thread {
 
-    final Socket socket;
-    final DataInputStream entrada;
-    final DataOutputStream salida;
-    final String nombre;
-    private final Set<String> bloqueados = new HashSet<>();
-    private final String rival = null;
-    private final boolean enPartida = false;
+    Socket socket;
+    DataInputStream entrada;
+    DataOutputStream salida;
+    String nombre;
+    boolean autenticado = false;
+    boolean enPartida = false;
+    String rival = null;
+    int mensajesSinLogin = 0;
 
-    private String grupoActual = "Todos";
-
-    public UnCliente(Socket s, String nombre) throws IOException {
+    public UnCliente(Socket s) {
         this.socket = s;
-        this.nombre = nombre;
-        entrada = new DataInputStream(s.getInputStream());
-        salida = new DataOutputStream(s.getOutputStream());
+        try {
+            entrada = new DataInputStream(s.getInputStream());
+            salida = new DataOutputStream(s.getOutputStream());
+            enviar("👋 Bienvenido al servidor Gato Chat. Usa /login <nombre> para iniciar sesión.");
+        } catch (IOException e) {
+            System.err.println("Error al conectar cliente: " + e.getMessage());
+        }
+    }
+
+    void enviar(String msg) {
+        try {
+            salida.writeUTF(msg);
+        } catch (IOException e) {
+            System.out.println("No se pudo enviar a " + nombre + ": " + e.getMessage());
+        }
     }
 
     @Override
     public void run() {
         try {
-            String mensaje;
             while (true) {
-                mensaje = entrada.readUTF();
-                if (mensaje == null) break;
+                String msg = entrada.readUTF().trim();
 
-                if (mensaje.startsWith("/")) {
-                    procesarComando(mensaje);
-                } else {
-                    enviarAGrupoActual(nombre + ": " + mensaje);
+                if (!autenticado) {
+                    if (msg.startsWith("/login ")) {
+                        String n = msg.substring(7).trim();
+                        if (n.isEmpty() || ServidorAsincrono.Clientes.containsKey(n)) {
+                            enviar("❌ Nombre inválido o ya en uso.");
+                        } else {
+                            nombre = n;
+                            autenticado = true;
+                            ServidorAsincrono.Clientes.put(nombre, this);
+                            ServidorAsincrono.Ranking.putIfAbsent(nombre, new EstadisticasJugador(nombre));
+                            enviar("✅ Sesión iniciada como " + nombre);
+                            enviar("Usa /ayuda para ver los comandos disponibles.");
+                        }
+                        continue;
+                    }
+
+                    mensajesSinLogin++;
+                    if (mensajesSinLogin > 3) {
+                        enviar("🚫 Límite de mensajes sin iniciar sesión. Usa /login <nombre>.");
+                    } else {
+                        enviar("⚠️ Debes iniciar sesión con /login <nombre>");
+                    }
+                    continue;
                 }
+
+                procesarComando(msg);
             }
         } catch (IOException e) {
             System.out.println("Cliente desconectado: " + nombre);
         } finally {
-            try { socket.close(); } catch (IOException ignored) {}
-            synchronized (ServidorAsincrono.CLIENTE_LOCK) {
+            cerrarConexion();
+        }
+    }
+
+    private void procesarComando(String msg) {
+        if (msg.equals("/usuarios")) {
+            enviar("👥 Usuarios conectados: " + ServidorAsincrono.Clientes.keySet());
+        }
+
+        else if (msg.startsWith("/jugar ")) {
+            String objetivo = msg.substring(7).trim();
+            if (objetivo.equals(nombre)) {
+                enviar("⚠️ No puedes jugar contra ti mismo.");
+                return;
+            }
+            UnCliente rival = ServidorAsincrono.Clientes.get(objetivo);
+            if (rival == null) {
+                enviar("❌ Usuario no encontrado.");
+                return;
+            }
+            if (rival.enPartida) {
+                enviar("⚠️ Ese jugador ya está en una partida.");
+                return;
+            }
+            ServidorAsincrono.SolicitudesPendientes.put(objetivo, nombre);
+            rival.enviar("🎮 " + nombre + " te ha retado a jugar. Usa /aceptar " + nombre);
+            enviar("✅ Solicitud enviada a " + objetivo);
+        }
+
+        else if (msg.startsWith("/aceptar ")) {
+            String rivalNombre = msg.substring(9).trim();
+            String solicitante = ServidorAsincrono.SolicitudesPendientes.get(nombre);
+            if (solicitante == null || !solicitante.equals(rivalNombre)) {
+                enviar("⚠️ No tienes una solicitud pendiente de " + rivalNombre);
+                return;
+            }
+            UnCliente j1 = ServidorAsincrono.Clientes.get(rivalNombre);
+            if (j1 != null) {
+                ServidorAsincrono.iniciarPartida(j1, this);
+                ServidorAsincrono.SolicitudesPendientes.remove(nombre);
+            } else {
+                enviar("❌ El jugador ya no está disponible.");
+            }
+        }
+
+        else if (msg.startsWith("/mover ")) {
+            try {
+                int pos = Integer.parseInt(msg.substring(7).trim());
+                ServidorAsincrono.mover(nombre, pos);
+            } catch (Exception e) {
+                enviar("❌ Uso: /mover <1-9>");
+            }
+        }
+
+        else if (msg.equals("/rendirse")) {
+            ServidorAsincrono.rendirse(nombre);
+        }
+
+        else if (msg.equals("/ranking")) {
+            enviar(ServidorAsincrono.mostrarRanking());
+        }
+
+        else if (msg.equals("/ayuda")) {
+            enviar(ServidorAsincrono.mostrarAyuda());
+        }
+
+        else {
+            enviar("❔ Comando no reconocido. Usa /ayuda para ver opciones.");
+        }
+    }
+
+    private void cerrarConexion() {
+        try {
+            if (nombre != null) {
                 ServidorAsincrono.Clientes.remove(nombre);
-                ServidorAsincrono.Grupos.get(grupoActual).salir(nombre);
+                System.out.println("🟡 Usuario desconectado: " + nombre);
             }
-        }
-    }
-
-    private void procesarComando(String mensaje) throws IOException {
-        String[] partes = mensaje.split(" ");
-        String comando = partes[0].toUpperCase();
-
-        switch (comando) {
-
-            case "/RANKING" -> {
-                if (enPartida) {
-                    salida.writeUTF("🚫 No puedes consultar el ranking mientras estás jugando.");
-                    return;
-                }
-                salida.writeUTF(ServidorAsincrono.obtenerRanking());
-            }
-
-            case "/VERSUS" -> {
-                if (enPartida) {
-                    salida.writeUTF("🚫 No puedes consultar el winrate mientras estás jugando.");
-                    return;
-                }
-                if (partes.length < 3) {
-                    salida.writeUTF("Uso: /versus <jugador1> <jugador2>");
-                    return;
-                }
-                salida.writeUTF(ServidorAsincrono.obtenerVs(partes[1], partes[2]));
-            }
-
-            // ==== GRUPOS ====
-            case "/GRUPOS" -> {
-                salida.writeUTF("📚 Grupos disponibles:");
-                for (String g : ServidorAsincrono.Grupos.keySet()) {
-                    salida.writeUTF("- " + g);
-                }
-            }
-
-            case "/CREARGRUPO" -> {
-                if (partes.length < 2) {
-                    salida.writeUTF("Uso: /creargrupo <nombre>");
-                    return;
-                }
-                String nuevo = partes[1];
-                if (nuevo.equalsIgnoreCase("Todos")) {
-                    salida.writeUTF("🚫 No puedes crear un grupo llamado 'Todos'.");
-                    return;
-                }
-                ServidorAsincrono.Grupos.putIfAbsent(nuevo, new GrupoChat(nuevo));
-                salida.writeUTF("✅ Grupo '" + nuevo + "' creado o ya existente.");
-            }
-
-            case "/UNIR" -> {
-                if (partes.length < 2) {
-                    salida.writeUTF("Uso: /unir <grupo>");
-                    return;
-                }
-                String nombreGrupo = partes[1];
-                GrupoChat grupo = ServidorAsincrono.Grupos.get(nombreGrupo);
-                if (grupo == null) {
-                    salida.writeUTF("❌ No existe ese grupo.");
-                    return;
-                }
-                grupo.unir(nombre);
-                grupoActual = nombreGrupo;
-                salida.writeUTF("📥 Te uniste al grupo: " + nombreGrupo);
-                for (String msg : grupo.obtenerMensajesNoVistos()) {
-                    salida.writeUTF("[Historial] " + msg);
-                }
-            }
-
-            case "/SALIRGRUPO" -> {
-                if (grupoActual.equals("Todos")) {
-                    salida.writeUTF("🚫 No puedes salir del grupo 'Todos'.");
-                    return;
-                }
-                ServidorAsincrono.Grupos.get(grupoActual).salir(nombre);
-                grupoActual = "Todos";
-                salida.writeUTF("↩️ Has regresado al grupo 'Todos'.");
-            }
-
-            case "/BORRARGRUPO" -> {
-                if (partes.length < 2) {
-                    salida.writeUTF("Uso: /borrargrupo <nombre>");
-                    return;
-                }
-                String g = partes[1];
-                if (g.equalsIgnoreCase("Todos")) {
-                    salida.writeUTF("🚫 No se puede borrar el grupo 'Todos'.");
-                    return;
-                }
-                GrupoChat grupo = ServidorAsincrono.Grupos.get(g);
-                if (grupo == null) {
-                    salida.writeUTF("❌ No existe el grupo.");
-                    return;
-                }
-                if (!grupo.estaVacio()) {
-                    salida.writeUTF("⚠️ No se puede borrar, aún tiene miembros.");
-                    return;
-                }
-                ServidorAsincrono.Grupos.remove(g);
-                salida.writeUTF("🗑️ Grupo '" + g + "' eliminado.");
-            }
-
-            case "/MIEMBROS" -> {
-                GrupoChat grupo = ServidorAsincrono.Grupos.get(grupoActual);
-                salida.writeUTF("👥 Miembros del grupo '" + grupoActual + "':");
-                for (String m : grupo.getMiembros()) {
-                    salida.writeUTF("• " + m);
-                }
-            }
-            default -> salida.writeUTF("Comando no reconocido.");
-        }
-    }
-
-    private void enviarAGrupoActual(String msg) throws IOException {
-        GrupoChat grupo = ServidorAsincrono.Grupos.get(grupoActual);
-        grupo.agregarMensaje(msg);
-        for (String usuario : grupo.getMiembros()) {
-            if (!usuario.equals(nombre)) {
-                UnCliente c = ServidorAsincrono.Clientes.get(usuario);
-                if (c != null) c.salida.writeUTF(msg);
-            }
-        }
+            socket.close();
+        } catch (IOException ignored) {}
     }
 }

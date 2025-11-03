@@ -1,89 +1,97 @@
 package servidor.asincrono;
 
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.io.*;
+import java.net.*;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 
 public class ServidorAsincrono {
-    public static final Object CLIENTE_LOCK = new Object();
+
+    public static final int PUERTO = 6000;
 
     public static final Map<String, UnCliente> Clientes = new ConcurrentHashMap<>();
     public static final Map<String, JuegoGato> Partidas = new ConcurrentHashMap<>();
     public static final Map<String, EstadisticasJugador> Ranking = new ConcurrentHashMap<>();
-
-    // === NUEVO: sistema de grupos persistentes ===
-    public static final Map<String, GrupoChat> Grupos = new ConcurrentHashMap<>();
-
-    static {
-        Grupos.put("Todos", new GrupoChat("Todos"));
-    }
+    public static final Map<String, String> SolicitudesPendientes = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
-        try (ServerSocket serverSocket = new ServerSocket(8080)) {
-            System.out.println("🟢 Servidor iniciado en puerto 8080");
+        System.out.println("🚀 Servidor iniciado en el puerto " + PUERTO);
 
+        try (ServerSocket servidor = new ServerSocket(PUERTO)) {
             while (true) {
-                Socket socket = serverSocket.accept();
-                java.io.DataInputStream entrada = new java.io.DataInputStream(socket.getInputStream());
-                java.io.DataOutputStream salida = new java.io.DataOutputStream(socket.getOutputStream());
-
-                salida.writeUTF("Ingrese su nombre:");
-                String nombre = entrada.readUTF();
-
-                UnCliente nuevoCliente = new UnCliente(socket, nombre);
-                Clientes.put(nombre, nuevoCliente);
-
-                Ranking.putIfAbsent(nombre, new EstadisticasJugador(nombre));
-
-                // Al conectar, automáticamente se unen al grupo “Todos”
-                Grupos.get("Todos").unir(nombre);
-
-                new Thread(nuevoCliente).start();
-                System.out.println("👤 Cliente conectado: " + nombre);
+                Socket socket = servidor.accept();
+                new UnCliente(socket).start();
             }
-
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("❌ Error en el servidor: " + e.getMessage());
         }
     }
 
-    public static void registrarResultado(String j1, String j2, String resultado) {
-        Ranking.putIfAbsent(j1, new EstadisticasJugador(j1));
-        Ranking.putIfAbsent(j2, new EstadisticasJugador(j2));
+    // 📦 Métodos de gestión de partidas
 
-        EstadisticasJugador p1 = Ranking.get(j1);
-        EstadisticasJugador p2 = Ranking.get(j2);
-
-        switch (resultado) {
-            case "gana1" -> { p1.registrarVictoria(); p2.registrarDerrota(); }
-            case "gana2" -> { p2.registrarVictoria(); p1.registrarDerrota(); }
-            case "empate" -> { p1.registrarEmpate(); p2.registrarEmpate(); }
+    public static void iniciarPartida(UnCliente j1, UnCliente j2) {
+        String clave = JuegoGato.clave(j1.nombre, j2.nombre);
+        if (Partidas.containsKey(clave)) {
+            j1.enviar("⚠️ Ya tienes una partida activa con " + j2.nombre);
+            return;
         }
+
+        JuegoGato juego = new JuegoGato(j1, j2);
+        Partidas.put(clave, juego);
+        juego.iniciar();
     }
 
-    public static String obtenerRanking() {
-        StringBuilder sb = new StringBuilder("📊 RANKING GENERAL:\n");
-        Ranking.values().stream()
-            .sorted((a, b) -> Integer.compare(b.getPuntos(), a.getPuntos()))
-            .forEach(est -> sb.append(est.toString()).append("\n"));
+    public static void mover(String jugador, int pos) {
+        for (JuegoGato partida : Partidas.values()) {
+            if (partida.contieneJugador(jugador)) {
+                partida.jugar(jugador, pos);
+                return;
+            }
+        }
+        UnCliente cli = Clientes.get(jugador);
+        if (cli != null) cli.enviar("⚠️ No estás en una partida activa.");
+    }
+
+    public static void rendirse(String jugador) {
+        for (JuegoGato partida : Partidas.values()) {
+            if (partida.contieneJugador(jugador)) {
+                partida.rendirse(jugador);
+                return;
+            }
+        }
+        UnCliente cli = Clientes.get(jugador);
+        if (cli != null) cli.enviar("⚠️ No estás en una partida activa.");
+    }
+
+    // 🏅 Mostrar ranking general
+    public static String mostrarRanking() {
+        if (Ranking.isEmpty()) return "📊 No hay jugadores registrados aún.";
+
+        StringBuilder sb = new StringBuilder("🏅 RANKING GLOBAL 🏅\n");
+        Ranking.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue().getPuntos(), a.getValue().getPuntos()))
+                .forEach(e -> {
+                    sb.append(String.format("👤 %-10s | %2d pts | %dV %dE %dD\n",
+                            e.getKey(),
+                            e.getValue().getPuntos(),
+                            e.getValue().victorias,
+                            e.getValue().empates,
+                            e.getValue().derrotas));
+                });
         return sb.toString();
     }
 
-    public static String obtenerVs(String j1, String j2) {
-        EstadisticasJugador e1 = Ranking.get(j1);
-        EstadisticasJugador e2 = Ranking.get(j2);
-        if (e1 == null || e2 == null)
-            return "❌ Uno o ambos jugadores no existen.";
-
-        int total = e1.getVictorias() + e2.getVictorias();
-        if (total == 0)
-            return "⚠️ No hay partidas registradas entre ellos.";
-
-        double porc1 = (100.0 * e1.getVictorias()) / total;
-        double porc2 = (100.0 * e2.getVictorias()) / total;
-
-        return String.format("📈 %s vs %s → %.1f%% / %.1f%%", j1, j2, porc1, porc2);
+    // 🧭 Mostrar comandos
+    public static String mostrarAyuda() {
+        return """
+        💡 COMANDOS DISPONIBLES:
+        /usuarios            → Ver usuarios conectados
+        /jugar <nombre>      → Retar a otro jugador
+        /aceptar <nombre>    → Aceptar reto
+        /mover <1-9>         → Hacer movimiento
+        /rendirse            → Rendirse y perder la partida
+        /ranking             → Ver clasificación global
+        /ayuda               → Mostrar este menú
+        """;
     }
 }
