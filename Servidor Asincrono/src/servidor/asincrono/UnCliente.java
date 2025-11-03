@@ -317,14 +317,15 @@ public final class UnCliente extends Thread {
         if (g == null) return;
         g.agregarMensaje(mensaje);
         for (String miembro : g.getMiembros()) {
-            if (miembro.equals(nombre)) continue;
+            if (miembro.equals(nombre)) continue;  // NO enviarte a ti mismo
             UnCliente c = ServidorAsincrono.Clientes.get(miembro);
             if (c == null) continue;
-            // si receptor bloqueó al emisor, no recibir
             if (c.bloqueados.contains(this.nombre)) continue;
             c.enviar("[" + grupoActual + "] " + mensaje);
         }
     }
+
+
 
     private void cambiarGrupoInterno(String nuevo) {
         GrupoChat old = (GrupoChat) ServidorAsincrono.Grupos.get(grupoActual);
