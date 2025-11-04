@@ -18,14 +18,12 @@ public class ServidorAsincrono {
     public static Map<String, String> Usuarios = new ConcurrentHashMap<>();
     public static Map<String, GrupoChat> Grupos = new ConcurrentHashMap<>();
 
-
     public static void main(String[] args) {
         inicializarGrupos();
         System.out.println("Servidor iniciado en puerto 8080");
         try (ServerSocket ss = new ServerSocket(8080)) {
             while (true) {
                 Socket s = ss.accept();
-                // Crear hilo para cada conexión
                 UnCliente cliente = new UnCliente(s);
                 cliente.start();
             }
@@ -34,15 +32,13 @@ public class ServidorAsincrono {
         }
     }
 
-  public static void inicializarGrupos() {
+    public static void inicializarGrupos() {
         Grupos.put("Todos", new GrupoChat("Todos"));
-
     }
 
-   public static void enviarAGrupo(UnCliente remitente, String mensaje) throws IOException {
+    public static void enviarAGrupo(UnCliente remitente, String mensaje) throws IOException {
         String grupo = GruposUsuarios.getOrDefault(remitente.nombre, "Todos");
         GrupoChat chat = Grupos.get(grupo);
-
         synchronized (CLIENTE_LOCK) {
             for (String miembro : chat.getMiembros()) {
                 UnCliente cli = Clientes.get(miembro);
@@ -53,97 +49,95 @@ public class ServidorAsincrono {
         }
     }
 
-    // Inicia una partida privada entre j1 (retador) y j2 (aceptante)
+    // 🔹 Inicia una partida privada entre j1 (retador) y j2 (aceptante)
     public static synchronized void iniciarPartida(UnCliente j1, UnCliente j2) {
-        String clave = JuegoGato.clave(j1.nombre, j2.nombre);
-        if (Partidas.containsKey(clave)) {
-            j1.enviar("⚠️ Ya existe una partida entre vosotros.");
+        if (j1.nombre.equals(j2.nombre)) {
+            j1.enviar("⚠️ No puedes jugar contra ti mismo.");
             return;
         }
+
+        String clave = JuegoGato.clave(j1.nombre, j2.nombre);
+        if (Partidas.containsKey(clave)) {
+            j1.enviar("⚠️ Ya tienes una partida activa con " + j2.nombre);
+            return;
+        }
+
         JuegoGato g = new JuegoGato(j1, j2);
         Partidas.put(clave, g);
         g.iniciar();
     }
 
-    // Ejecuta un movimiento
-    public static void mover(String jugador, int pos) {
-        for (JuegoGato g : Partidas.values()) {
-            if (g.contieneJugador(jugador)) {
-                g.jugar(jugador, pos);
-                return;
-            }
+    // 🔹 Ejecuta un movimiento dentro de una partida específica
+    public static void mover(String jugador, String rival, int pos) {
+        String clave = JuegoGato.clave(jugador, rival);
+        JuegoGato partida = Partidas.get(clave);
+        if (partida == null) {
+            UnCliente c = Clientes.get(jugador);
+            if (c != null) c.enviar("⚠️ No tienes una partida activa con " + rival);
+            return;
         }
-        UnCliente c = Clientes.get(jugador);
-        if (c != null) c.enviar("⚠️ No estás en una partida activa.");
+        partida.jugar(jugador, pos);
     }
 
-    // Rendirse
-    public static void rendirse(String jugador) {
-        for (JuegoGato g : Partidas.values()) {
-            if (g.contieneJugador(jugador)) {
-                g.rendirse(jugador);
-                return;
-            }
+    // 🔹 Rendirse en una partida específica
+    public static void rendirse(String jugador, String rival) {
+        String clave = JuegoGato.clave(jugador, rival);
+        JuegoGato partida = Partidas.get(clave);
+        if (partida == null) {
+            UnCliente c = Clientes.get(jugador);
+            if (c != null) c.enviar("⚠️ No tienes una partida activa con " + rival);
+            return;
         }
-        UnCliente c = Clientes.get(jugador);
-        if (c != null) c.enviar("⚠️ No estás en una partida activa.");
+        partida.rendirse(jugador);
     }
 
-    // Finalizar partida por desconexión: ganador es 'ganador', perdedor 'perdedor'
-public static void finalizarPartidaPorDesconexion(String jugador) {
-    String clave = null;
-    JuegoGato partida = null;
-
-    synchronized (Partidas) {
+    // 🔹 Finalizar partida por desconexión
+    public static void finalizarPartidaPorDesconexion(String jugador) {
+        List<String> clavesEliminar = new ArrayList<>();
         for (Map.Entry<String, JuegoGato> entry : Partidas.entrySet()) {
-            if (entry.getValue().contieneJugador(jugador)) {
-                clave = entry.getKey();
-                partida = entry.getValue();
-                break;
+            JuegoGato partida = entry.getValue();
+            if (partida.contieneJugador(jugador)) {
+                String clave = entry.getKey();
+                String ganador = partida.jugador1.nombre.equals(jugador)
+                        ? partida.jugador2.nombre
+                        : partida.jugador1.nombre;
+
+                partida.enviarAmbos("⚠️ " + jugador + " se ha desconectado. ¡" + ganador + " gana por abandono!");
+                registrarResultado(ganador, jugador, "gana1");
+                clavesEliminar.add(clave);
             }
         }
+        for (String c : clavesEliminar) Partidas.remove(c);
     }
 
-    if (clave == null || partida == null) return;
+    // 🔹 Registrar resultados
+    public static void registrarResultado(String j1, String j2, String resultado) {
+        EstadisticasJugador e1 = Ranking.computeIfAbsent(j1, k -> new EstadisticasJugador());
+        EstadisticasJugador e2 = Ranking.computeIfAbsent(j2, k -> new EstadisticasJugador());
 
-    String ganador = partida.jugador1.nombre.equals(jugador)
-            ? partida.jugador2.nombre
-            : partida.jugador1.nombre;
-
-    partida.enviarAmbos("⚠️ " + jugador + " se ha desconectado. ¡" + ganador + " gana por abandono!");
-    registrarResultado(ganador, jugador, "gana1");
-
-    Partidas.remove(clave);
-}
-
-
- public static void registrarResultado(String j1, String j2, String resultado) {
-    EstadisticasJugador e1 = Ranking.computeIfAbsent(j1, k -> new EstadisticasJugador());
-    EstadisticasJugador e2 = Ranking.computeIfAbsent(j2, k -> new EstadisticasJugador());
-
-    switch (resultado.toLowerCase()) {
-        case "gana1" -> {
-            e1.registrarVictoria();
-            e2.registrarDerrota();
-            e1.registrarContra(j2, "victoria");
-            e2.registrarContra(j1, "derrota");
+        switch (resultado.toLowerCase()) {
+            case "gana1" -> {
+                e1.registrarVictoria();
+                e2.registrarDerrota();
+                e1.registrarContra(j2, "victoria");
+                e2.registrarContra(j1, "derrota");
+            }
+            case "gana2" -> {
+                e2.registrarVictoria();
+                e1.registrarDerrota();
+                e2.registrarContra(j1, "victoria");
+                e1.registrarContra(j2, "derrota");
+            }
+            case "empate" -> {
+                e1.registrarEmpate();
+                e2.registrarEmpate();
+                e1.registrarContra(j2, "empate");
+                e2.registrarContra(j1, "empate");
+            }
         }
-        case "gana2" -> {
-            e2.registrarVictoria();
-            e1.registrarDerrota();
-            e2.registrarContra(j1, "victoria");
-            e1.registrarContra(j2, "derrota");
-        }
-        case "empate" -> {
-            e1.registrarEmpate();
-            e2.registrarEmpate();
-            e1.registrarContra(j2, "empate");
-            e2.registrarContra(j1, "empate");
-        }
+
+        System.out.printf("📊 Resultado registrado: %s vs %s → %s%n", j1, j2, resultado);
     }
-
-    System.out.printf("📊 Resultado registrado: %s vs %s → %s%n", j1, j2, resultado);
-}
 
     public static String obtenerRanking() {
         StringBuilder sb = new StringBuilder("📊 RANKING GENERAL:\n");
@@ -160,40 +154,37 @@ public static void finalizarPartidaPorDesconexion(String jugador) {
         return e1.getResumenContra(j1, j2);
     }
 
-    // ---------------- Ayuda ----------------
-
+    // 🔹 Ayuda
     public static String ayuda() {
         return """
-        COMANDOS (agrupados):
+        COMANDOS:
         SESIÓN:
-          /login <nombre>           - iniciar sesión (invitados pueden usar hasta 3 mensajes antes)
-          /desconectarse                    - desconectarse (no permitido durante partida; rendirse primero)
+          /login <nombre>           - iniciar sesión
+          /desconectarse            - salir del servidor (no en partida)
+
+        CHAT:
+          /conectados               - usuarios conectados
+          /bloquear <usuario>       - bloquear usuario
+          /desbloquear <usuario>    - desbloquear usuario
+          /ayuda                    - mostrar este menú
 
         GRUPOS:
           /grupos                   - listar grupos
-          /creargrupo <nombre>      - crear grupo (no 'Todos')
+          /creargrupo <nombre>      - crear grupo
           /unir <nombre>            - unirse a grupo
-          /salirgrupo               - salir del grupo actual (vuelve a Todos)
-          /borrargrupo <nombre>     - borrar grupo vacío (no 'Todos')
+          /salirgrupo               - salir al grupo 'Todos'
+          /borrargrupo <nombre>     - borrar grupo vacío
           /miembros                 - listar miembros del grupo actual
 
-        CHAT:
-          (mensaje normal)          - envía al grupo actual (invitados solo en Todos)
-          /conectados               - listar usuarios conectados
-          /bloquear <usuario>       - bloquear (no recibir mensajes de ese usuario)
-          /desbloquear <usuario>    - desbloquear
-
         GATO:
-          /jugar <usuario>          - retar a usuario
+          /jugar <usuario>          - retar a otro jugador
           /aceptar <usuario>        - aceptar reto
-          /mover <1-9>              - hacer movimiento en la partida
-          /rendirse                 - rendirse (pierde la partida)
+          /mover <usuario> <1-9>    - hacer movimiento contra usuario específico
+          /rendirse <usuario>       - rendirse en partida contra usuario
 
         RANKING:
-          /ranking                  - ranking general (puntos)
+          /ranking                  - mostrar ranking
           /versus <a> <b>           - win-rate entre dos jugadores
-
-        /ayuda                      - mostrar este menú
         """;
     }
 }

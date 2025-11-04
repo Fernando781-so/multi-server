@@ -9,31 +9,22 @@ public final class UnCliente extends Thread {
     DataInputStream entrada;
     DataOutputStream salida;
 
-    String nombre;                
-    boolean esAnonimo = true;      
+    String nombre;
+    boolean esAnonimo = true;
     int mensajesAnonimos = 0;
 
-    // bloqueo y grupos
     final Set<String> bloqueados = Collections.synchronizedSet(new HashSet<>());
+    final Set<String> rivalesActivos = Collections.synchronizedSet(new HashSet<>());
 
-    // partida
-    boolean enPartida = false;
-    String rival = null;
-
-    // grupos
     String grupoActual = "Todos";
-    int ultimoIndiceLeido = 0; 
 
     public UnCliente(Socket s) {
         this.socket = s;
         try {
             entrada = new DataInputStream(s.getInputStream());
             salida = new DataOutputStream(s.getOutputStream());
-            // initial anonymous name assigned; client may send /login immediately
             this.nombre = "Invitado_" + new Random().nextInt(10000);
-            enviar("👋 Bienvenido. Has entrado como '" + nombre + "' (invitado). Puedes enviar 3 mensajes. Usa /login <nombre> para registrarte.\n"
-                  +"Si necesitas ver los comando para comunicarse o hacer una accion escribe /ayuda para ver todos los comando y como se usan.");
-
+            enviar("👋 Bienvenido " + nombre + ". Puedes usar 3 mensajes antes de /login <nombre>.\nEscribe /ayuda para comandos.");
             ((GrupoChat) ServidorAsincrono.Grupos.get("Todos")).unir(nombre);
             ServidorAsincrono.Clientes.put(nombre, this);
         } catch (IOException e) {
@@ -44,8 +35,7 @@ public final class UnCliente extends Thread {
     public synchronized void enviar(String m) {
         try {
             salida.writeUTF(m);
-        } catch (IOException e) {
-        }
+        } catch (IOException e) {}
     }
 
     @Override
@@ -56,29 +46,10 @@ public final class UnCliente extends Thread {
                 if (linea == null) break;
                 linea = linea.trim();
                 if (linea.isEmpty()) continue;
-                if (linea.startsWith("/")) {
-                    procesarComando(linea);
-                } else {
-                    // mensaje normal: comprobar invitado y límites
-                    if (esAnonimo) {
-                        mensajesAnonimos++;
-                        if (mensajesAnonimos > 3) {
-                            enviar("🚫 Límite de 3 mensajes alcanzado para invitados. Usa /login <nombre> para seguir.");
-                            continue;
-                        }
-                        // invitados solo en Todos
-                        if (!"Todos".equals(grupoActual)) {
-                            enviar("🚫 Invitados solo pueden estar en 'Todos'. Cambiando a 'Todos'.");
-                            cambiarGrupoInterno("Todos");
-                        }
-                        enviarAGrupo(nombre + " (Invitado): " + linea);
-                    } else {
-                        enviarAGrupo(nombre + ": " + linea);
-                    }
-                }
+                if (linea.startsWith("/")) procesarComando(linea);
+                else enviarAGrupo(nombre + ": " + linea);
             }
         } catch (IOException e) {
-            // desconexión del socket (puede pasar en medio de partida)
             System.out.println("Desconexión de " + nombre);
             manejarDesconexion();
         } finally {
@@ -87,9 +58,8 @@ public final class UnCliente extends Thread {
     }
 
     private void procesarComando(String linea) {
-        String[] partes = linea.split(" ", 2);
+        String[] partes = linea.split(" ", 3);
         String cmd = partes[0].toLowerCase();
-
         try {
             switch (cmd) {
                 case "/login" -> {
@@ -151,7 +121,7 @@ public final class UnCliente extends Thread {
                     }
                 }
 
-                    case "/conectados" -> {
+                case "/conectados" -> {
                         StringBuilder sb = new StringBuilder("🟢 Usuarios conectados y sus grupos:\n");
                         for (Map.Entry<String, UnCliente> entry : ServidorAsincrono.Clientes.entrySet()) {
                             UnCliente c = entry.getValue();
@@ -164,17 +134,20 @@ public final class UnCliente extends Thread {
                     }
 
                 case "/desconectarse" -> {
+                    // Verificar si el jugador está actualmente en alguna partida activa
+                    boolean enPartida = ServidorAsincrono.Partidas.values().stream()
+                            .anyMatch(j -> j.contieneJugador(nombre));
+
                     if (enPartida) {
                         enviar("🚫 No puedes desconectarte durante una partida. Usa /rendirse si quieres abandonar.");
                         return;
                     }
+
                     enviar("👋 Desconectando...");
                     cerrar();
                 }
 
-                case "/ayuda" -> enviar(ServidorAsincrono.ayuda());
-
-                case "/grupos" -> {
+               case "/grupos" -> {
                     StringBuilder sb = new StringBuilder("📚 Grupos disponibles:\n");
                     for (String g : ServidorAsincrono.Grupos.keySet()) sb.append("- ").append(g).append("\n");
                     enviar(sb.toString());
@@ -229,13 +202,31 @@ public final class UnCliente extends Thread {
                 }
 
                 case "/bloquear" -> {
-                    if (partes.length < 2) { enviar("Uso: /bloquear <usuario>"); return; }
+                    if (partes.length < 2) { 
+                        enviar("Uso: /bloquear <usuario>"); 
+                        return; 
+                    }
                     String u = partes[1].trim();
-                    if (u.equals(nombre)) { enviar("❌ No puedes bloquearte a ti mismo."); return; }
+                    if (u.equals(nombre)) { 
+                        enviar("❌ No puedes bloquearte a ti mismo."); 
+                        return; 
+                    }
+
                     UnCliente objetivo = ServidorAsincrono.Clientes.get(u);
-                    if (objetivo == null) { enviar("❌ Usuario no encontrado."); return; }
-                    // no bloquear rival en partida
-                    if (enPartida && u.equals(rival)) { enviar("🚫 No puedes bloquear a tu rival durante la partida."); return; }
+                    if (objetivo == null) { 
+                        enviar("❌ Usuario no encontrado."); 
+                        return; 
+                    }
+
+                    // 🔹 Verificar si el jugador está en partida con el otro
+                    for (JuegoGato partida : ServidorAsincrono.Partidas.values()) {
+                        if (partida.contieneJugador(nombre) && partida.contieneJugador(u)) {
+                            enviar("🚫 No puedes bloquear a tu rival mientras están jugando una partida.");
+                            return;
+                        }
+                    }
+
+                    // 🔹 Agregar a lista de bloqueados
                     bloqueados.add(u);
                     enviar("🚫 Has bloqueado a " + u);
                 }
@@ -248,20 +239,15 @@ public final class UnCliente extends Thread {
                 }
 
                 case "/jugar" -> {
-                    if (esAnonimo) { enviar("🚫 Invitados no pueden jugar."); return; }
-                    if (enPartida) { enviar("🚫 Ya estás en una partida."); return; }
                     if (partes.length < 2) { enviar("Uso: /jugar <usuario>"); return; }
                     String o = partes[1].trim();
-                    if (o.equals(nombre)) { enviar("⚠️ No puedes jugar contra ti mismo."); return; }
+                    if (o.equals(nombre)) { enviar("⚠️ No puedes jugar contigo mismo."); return; }
                     UnCliente oponente = ServidorAsincrono.Clientes.get(o);
-                    if (oponente == null) { enviar("❌ Usuario no conectado."); return; }
-                    if (oponente.esAnonimo) { enviar("🚫 No puedes jugar con invitados."); return; }
-                    if (oponente.enPartida) { enviar("⚠️ El usuario ya está en partida."); return; }
-                    // si bloqueado mutuo?
-                    if (bloqueados.contains(o) || oponente.bloqueados.contains(nombre)) { enviar("🚫 No puedes jugar: bloqueo presente."); return; }
-                    // enviar solicitud
+                    if (oponente == null) { enviar("❌ Usuario no encontrado."); return; }
+                    if (rivalesActivos.contains(o)) { enviar("⚠️ Ya tienes una partida activa con " + o); return; }
+
                     ServidorAsincrono.SolicitudesPendientes.put(o, nombre);
-                    oponente.enviar("🎮 " + nombre + " te ha retado. Para aceptar: /aceptar " + nombre);
+                    oponente.enviar("🎮 " + nombre + " te ha retado. Usa /aceptar " + nombre + " para comenzar.");
                     enviar("✅ Solicitud enviada a " + o);
                 }
 
@@ -272,43 +258,38 @@ public final class UnCliente extends Thread {
                     if (pendiente == null || !pendiente.equals(who)) { enviar("⚠️ No tienes invitación de " + who); return; }
                     UnCliente retador = ServidorAsincrono.Clientes.get(who);
                     if (retador == null) { enviar("❌ El retador ya no está disponible."); return; }
-                    // iniciar partida
+
+                    rivalesActivos.add(who);
+                    retador.rivalesActivos.add(nombre);
                     ServidorAsincrono.iniciarPartida(retador, this);
                     ServidorAsincrono.SolicitudesPendientes.remove(nombre);
                 }
 
                 case "/mover" -> {
-                    if (partes.length < 2) { enviar("Uso: /mover <1-9>"); return; }
-                    try {
-                        int pos = Integer.parseInt(partes[1].trim());
-                        ServidorAsincrono.mover(nombre, pos);
-                    } catch (NumberFormatException ex) {
-                        enviar("❌ Posición inválida. Usa 1-9.");
-                    }
+                    if (partes.length < 3) { enviar("Uso: /mover <usuario> <1-9>"); return; }
+                    String rival = partes[1];
+                    int pos = Integer.parseInt(partes[2]);
+                    ServidorAsincrono.mover(nombre, rival, pos);
                 }
 
                 case "/rendirse" -> {
-                    if (!enPartida) { enviar("⚠️ No estás en partida."); return; }
-                    ServidorAsincrono.rendirse(nombre);
+                    if (partes.length < 2) { enviar("Uso: /rendirse <usuario>"); return; }
+                    String rival = partes[1].trim();
+                    ServidorAsincrono.rendirse(nombre, rival);
                 }
 
-                case "/ranking" -> {
-                    if (enPartida) { enviar("🚫 No puedes ver ranking durante una partida."); return; }
-                    enviar(ServidorAsincrono.obtenerRanking());
-                }
-
+                case "/ranking" -> enviar(ServidorAsincrono.obtenerRanking());
                 case "/versus" -> {
-                    if (partes.length < 2) { enviar("Uso: /versus <jugador1> <jugador2>"); return; }
-                    String[] p = partes[1].trim().split(" ");
-                    if (p.length < 2) { enviar("Uso: /versus <jugador1> <jugador2>"); return; }
-                    if (enPartida) { enviar("🚫 No puedes consultar versus durante una partida."); return; }
-                    enviar(ServidorAsincrono.obtenerVs(p[0], p[1]));
+                    if (partes.length < 3) { enviar("Uso: /versus <jugador1> <jugador2>"); return; }
+                    enviar(ServidorAsincrono.obtenerVs(partes[1], partes[2]));
                 }
-
-                default -> enviar("❓ Comando no reconocido. Usa /ayuda para ver opciones.");
+                case "/ayuda" -> enviar(ServidorAsincrono.ayuda());
+                default -> enviar("❓ Comando desconocido.");
             }
+
+            
         } catch (Exception e) {
-            enviar("⚠️ Error procesando comando: " + e.getMessage());
+            enviar("⚠️ Error: " + e.getMessage());
         }
     }
 
@@ -317,7 +298,7 @@ public final class UnCliente extends Thread {
         if (g == null) return;
         g.agregarMensaje(mensaje);
         for (String miembro : g.getMiembros()) {
-            if (miembro.equals(nombre)) continue;  // NO enviarte a ti mismo
+            if (miembro.equals(nombre)) continue;
             UnCliente c = ServidorAsincrono.Clientes.get(miembro);
             if (c == null) continue;
             if (c.bloqueados.contains(this.nombre)) continue;
@@ -325,41 +306,15 @@ public final class UnCliente extends Thread {
         }
     }
 
-
-
-    private void cambiarGrupoInterno(String nuevo) {
-        GrupoChat old = (GrupoChat) ServidorAsincrono.Grupos.get(grupoActual);
-        if (old != null) old.salir(nombre);
-        grupoActual = nuevo;
-        GrupoChat g = (GrupoChat) ServidorAsincrono.Grupos.get(nuevo);
-        if (g != null) g.unir(nombre);
-    }
-
-    // Manejar desconexión inesperada: si estaba en partida, otorgar victoria al otro
     private void manejarDesconexion() {
-        try {
-            if (enPartida && rival != null) {
-                UnCliente oponente = ServidorAsincrono.Clientes.get(rival);
-                if (oponente != null) {
-                    oponente.enviar("⚠️ Tu rival (" + nombre + ") se desconectó. Ganas automáticamente.");
-                    // actualizar ranking y versus
-                    ServidorAsincrono.registrarResultado(oponente.nombre, this.nombre, "gana1");
-                }
-                String clave = JuegoGato.clave(nombre, rival);
-                ServidorAsincrono.Partidas.remove(clave);
-            }
-        } catch (Exception ignored) {}
+        ServidorAsincrono.finalizarPartidaPorDesconexion(nombre);
     }
 
-    // cerrar y limpiar
     private void cerrar() {
         try {
-            // salir de grupo
-            GrupoChat g = (GrupoChat) ServidorAsincrono.Grupos.get(grupoActual);
-            if (g != null) g.salir(nombre);
-            // remover cliente
             ServidorAsincrono.Clientes.remove(nombre);
             socket.close();
         } catch (IOException ignored) {}
     }
 }
+
