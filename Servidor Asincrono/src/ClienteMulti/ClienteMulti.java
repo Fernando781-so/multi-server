@@ -17,9 +17,5 @@ public class ClienteMulti {
         hiloParaRecibir.start();
     }
 }
-/* 
 
-
-
-*/
 
