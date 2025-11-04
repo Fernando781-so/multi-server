@@ -5,7 +5,7 @@ import java.net.Socket;
 
 public class ClienteMulti {
     public static void main(String[] args) throws IOException {
-        Socket s = new Socket("localhost", 8080);
+        Socket s = new Socket("192.168.90.3", 8080);
         System.out.println("Conectado al servidor.");
 
         paraMandar paraMandar = new paraMandar(s);

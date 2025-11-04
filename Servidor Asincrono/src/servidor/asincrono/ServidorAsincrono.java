@@ -20,7 +20,7 @@ public class ServidorAsincrono {
 
     public static void main(String[] args) {
         inicializarGrupos();
-        System.out.println("Servidor iniciado en puerto 8080");
+        System.out.println("Iniciando Servidor");
         try (ServerSocket ss = new ServerSocket(8080)) {
             while (true) {
                 Socket s = ss.accept();
