@@ -178,13 +178,13 @@ public class ServidorAsincrono {
 
         GATO:
           /jugar <usuario>          - retar a otro jugador
-          /aceptar <usuario>        - aceptar reto
-          /mover <usuario> <1-9>    - hacer movimiento contra usuario específico
-          /rendirse <usuario>       - rendirse en partida contra usuario
+          /aceptar <retador>       - aceptar reto
+          /mover <oponente> <1-9>    - hacer movimiento contra oponente específico
+          /rendirse <oponente>       - rendirse en partida contra oponente
 
         RANKING:
-          /ranking                  - mostrar ranking
-          /versus <a> <b>           - win-rate entre dos jugadores
+          /ranking                               - mostrar ranking
+          /versus <jugador> <oponente>           - win-rate entre dos jugadores (el winrate es del jugador)
         """;
     }
 }
