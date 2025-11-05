@@ -28,7 +28,7 @@ public class ServidorAsincrono {
                 cliente.start();
             }
         } catch (IOException e) {
-            System.out.println("Error al iniciar el servidor: " + e.getMessage());
+            System.out.println("Error al iniciar el servidor");
         }
     }
 
