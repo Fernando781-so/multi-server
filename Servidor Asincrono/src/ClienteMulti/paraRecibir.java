@@ -19,7 +19,7 @@ public class paraRecibir implements Runnable {
                 System.out.println(mensaje);
             }
         } catch (IOException e) {
-            System.out.println("Conexión cerrada por el servidor.");
+            System.out.println("Conexión cerrada con el servidor.");
         }
     }
 }

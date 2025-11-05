@@ -160,7 +160,7 @@ public class ServidorAsincrono {
         COMANDOS:
         SESIÓN:
           /login <nombre>           - iniciar sesión
-          /desconectarse            - salir del servidor (no en partida)
+          /desconectar              - salir del servidor (no en partida)
 
         CHAT:
           /conectados               - usuarios conectados

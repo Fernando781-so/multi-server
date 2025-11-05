@@ -133,7 +133,7 @@ public final class UnCliente extends Thread {
                         enviar(sb.toString());
                     }
 
-                case "/desconectarse" -> {
+                case "/desconectar" -> {
                     // Verificar si el jugador está actualmente en alguna partida activa
                     boolean enPartida = ServidorAsincrono.Partidas.values().stream()
                             .anyMatch(j -> j.contieneJugador(nombre));

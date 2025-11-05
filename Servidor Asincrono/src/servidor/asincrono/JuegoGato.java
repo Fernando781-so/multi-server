@@ -111,15 +111,17 @@ public class JuegoGato {
     }
 
     // 🔹 Dibujar tablero
-    public String dibujarTablero() {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < 9; i++) {
-            sb.append(tablero[i] == ' ' ? (i + 1) : tablero[i]);
-            if (i % 3 == 2 && i != 8) sb.append("\n───┼───┼───\n");
-            else if (i % 3 != 2) sb.append(" │ ");
-        }
-        return sb.toString();
+// 🔹 Dibujar tablero
+public String dibujarTablero() {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < 9; i++) {
+        sb.append(tablero[i] == ' ' ? String.valueOf(i + 1) : String.valueOf(tablero[i]));
+        if (i % 3 == 2 && i != 8) sb.append("\n───┼───┼───\n");
+        else if (i % 3 != 2) sb.append(" │ ");
     }
+    return sb.toString();
+}
+
 
     // 🔹 Verificar ganador
     private boolean hayGanador(char m) {
