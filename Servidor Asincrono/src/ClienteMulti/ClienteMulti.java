@@ -5,6 +5,7 @@ import java.net.Socket;
 
 public class ClienteMulti {
     public static void main(String[] args) throws IOException {
+        while(true){
         try{
         Socket s = new Socket("192.168.137.1", 8080);
         System.out.println("Conectado al servidor.");
@@ -19,8 +20,14 @@ public class ClienteMulti {
         } catch (IOException e) {
             System.out.println("No se pudo conectar al servidor: ");
             System.out.println("Cerrando cliente");
+          try {
+              Thread.sleep(10000);
+          } catch (InterruptedException ie) {
+            System.out.println("Proceso interrumpido");
+          }
         }
-    }
-}
+       } 
+     }
+  }
 
 
