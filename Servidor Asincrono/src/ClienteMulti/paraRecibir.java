@@ -20,6 +20,9 @@ public class paraRecibir implements Runnable {
             }
         } catch (IOException e) {
             System.out.println("Conexión cerrada con el servidor.");
+        }finally{
+            ClienteMulti.activo = false;
+            try{entrada.close();} catch (IOException ignored){}
         }
     }
 }

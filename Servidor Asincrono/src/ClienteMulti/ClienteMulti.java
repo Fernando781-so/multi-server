@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.Socket;
 
 public class ClienteMulti {
+    public static volatile boolean activo = true;
     public static void main(String[] args) throws IOException {
         while(true){
         try{
