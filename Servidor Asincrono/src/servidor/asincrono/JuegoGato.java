@@ -8,7 +8,6 @@ public class JuegoGato {
     final UnCliente jugador2;
     private final char[] tablero = new char[9];
     private String turno;
-
     private boolean enCurso = false;
 
     public JuegoGato(UnCliente j1, UnCliente j2) {
@@ -17,13 +16,12 @@ public class JuegoGato {
         Arrays.fill(tablero, ' ');
     }
 
-    public static String clave(String j1, String j2) {
-        List<String> l = Arrays.asList(j1, j2);
+    public static String clave(String a, String b) {
+        List<String> l = Arrays.asList(a, b);
         Collections.sort(l);
         return l.get(0) + "_" + l.get(1);
     }
 
-    // 🔹 Iniciar partida
     public void iniciar() {
         enCurso = true;
         turno = new Random().nextBoolean() ? jugador1.nombre : jugador2.nombre;
@@ -32,37 +30,30 @@ public class JuegoGato {
         enviarAmbos(dibujarTablero());
     }
 
-    // 🔹 Verifica si contiene a un jugador
     public boolean contieneJugador(String nombre) {
         return jugador1.nombre.equals(nombre) || jugador2.nombre.equals(nombre);
     }
 
-    // 🔹 Jugar movimiento
     public synchronized void jugar(String jugador, int pos) {
         if (!enCurso) {
             enviar(jugador, "⚠️ La partida ya terminó.");
             return;
         }
-
         if (pos < 1 || pos > 9) {
             enviar(jugador, "⚠️ Movimiento inválido (1-9).");
             return;
         }
-
         if (!jugador.equals(turno)) {
             enviar(jugador, "⏳ No es tu turno.");
             return;
         }
-
         int idx = pos - 1;
         if (tablero[idx] != ' ') {
             enviar(jugador, "🚫 Esa casilla ya está ocupada.");
             return;
         }
-
         char marca = jugador.equals(jugador1.nombre) ? 'X' : 'O';
         tablero[idx] = marca;
-
         enviarAmbos("🎯 " + jugador + " marcó posición " + pos);
         enviarAmbos(dibujarTablero());
 
@@ -70,14 +61,16 @@ public class JuegoGato {
             enCurso = false;
             enviarAmbos("🏆 " + jugador + " ha ganado la partida.");
             String perdedor = jugador.equals(jugador1.nombre) ? jugador2.nombre : jugador1.nombre;
-            ServidorAsincrono.registrarResultado(jugador, perdedor, jugador.equals(jugador1.nombre) ? "gana1" : "gana2");
+            // registrar resultado en Servidor (gana1 = primer parametro j1 ganó)
+            if (jugador.equals(jugador1.nombre)) ServidorAsincrono.registrarResultado(jugador1.nombre, jugador2.nombre, "gana1");
+            else ServidorAsincrono.registrarResultado(jugador2.nombre, jugador1.nombre, "gana1");
             limpiarPartida();
             return;
         }
 
         if (tableroLleno()) {
             enCurso = false;
-            enviarAmbos("🤝 La partida ha terminado en empate.");
+            enviarAmbos("🤝 Empate!");
             ServidorAsincrono.registrarResultado(jugador1.nombre, jugador2.nombre, "empate");
             limpiarPartida();
             return;
@@ -87,19 +80,17 @@ public class JuegoGato {
         enviarAmbos("➡️ Turno de: " + turno);
     }
 
-    // 🔹 Rendirse
-    public synchronized void rendirse(String jugador) {
+    public synchronized void rendirse(String nombre) {
         if (!enCurso) {
-            enviar(jugador, "⚠️ No hay partida activa.");
+            enviar(nombre, "⚠️ No hay partida activa.");
             return;
         }
-        String ganador = jugador.equals(jugador1.nombre) ? jugador2.nombre : jugador1.nombre;
-        enviarAmbos("🏳️ " + jugador + " se ha rendido. Gana " + ganador + ".");
-        ServidorAsincrono.registrarResultado(ganador, jugador, ganador.equals(jugador1.nombre) ? "gana1" : "gana2");
+        String ganador = jugador1.nombre.equals(nombre) ? jugador2.nombre : jugador1.nombre;
+        enviarAmbos("🏳️ " + nombre + " se rindió. Gana " + ganador + ".");
+        ServidorAsincrono.registrarResultado(ganador, nombre, ganador.equals(jugador1.nombre) ? "gana1" : "gana2");
         limpiarPartida();
     }
 
-    // 🔹 Enviar mensajes
     public void enviar(String jugador, String msg) {
         UnCliente c = ServidorAsincrono.Clientes.get(jugador);
         if (c != null) c.enviar("[GATO] " + msg);
@@ -110,25 +101,21 @@ public class JuegoGato {
         if (jugador2 != null) jugador2.enviar("[GATO] " + msg);
     }
 
-    // 🔹 Dibujar tablero
-// 🔹 Dibujar tablero
-public String dibujarTablero() {
-    StringBuilder sb = new StringBuilder();
-    for (int i = 0; i < 9; i++) {
-        sb.append(tablero[i] == ' ' ? String.valueOf(i + 1) : String.valueOf(tablero[i]));
-        if (i % 3 == 2 && i != 8) sb.append("\n───┼───┼───\n");
-        else if (i % 3 != 2) sb.append(" │ ");
+    public String dibujarTablero() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 9; i++) {
+            sb.append(tablero[i] == ' ' ? String.valueOf(i + 1) : String.valueOf(tablero[i]));
+            if (i % 3 == 2 && i != 8) sb.append("\n───┼───┼───\n");
+            else if (i % 3 != 2) sb.append(" │ ");
+        }
+        return sb.toString();
     }
-    return sb.toString();
-}
 
-
-    // 🔹 Verificar ganador
     private boolean hayGanador(char m) {
         int[][] lineas = {
-            {0,1,2},{3,4,5},{6,7,8}, // filas
-            {0,3,6},{1,4,7},{2,5,8}, // columnas
-            {0,4,8},{2,4,6}          // diagonales
+            {0,1,2},{3,4,5},{6,7,8},
+            {0,3,6},{1,4,7},{2,5,8},
+            {0,4,8},{2,4,6}
         };
         for (int[] l : lineas)
             if (tablero[l[0]] == m && tablero[l[1]] == m && tablero[l[2]] == m)
@@ -136,18 +123,19 @@ public String dibujarTablero() {
         return false;
     }
 
-    // 🔹 Verificar empate
     private boolean tableroLleno() {
-        for (char c : tablero)
-            if (c == ' ')
-                return false;
+        for (char c : tablero) if (c == ' ') return false;
         return true;
     }
 
-    // 🔹 Limpieza al finalizar partida
     private void limpiarPartida() {
         jugador1.rivalesActivos.remove(jugador2.nombre);
         jugador2.rivalesActivos.remove(jugador1.nombre);
-        ServidorAsincrono.Partidas.remove(clave(jugador1.nombre, jugador2.nombre));
+        PartidasSafeRemove();
+    }
+
+    private void PartidasSafeRemove() {
+        String clave = clave(jugador1.nombre, jugador2.nombre);
+        ServidorAsincrono.Partidas.remove(clave);
     }
 }
