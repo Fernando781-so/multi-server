@@ -4,31 +4,27 @@ import java.io.IOException;
 import java.net.Socket;
 
 public class ClienteMulti {
-    public static volatile boolean activo = true;
-    public static void main(String[] args) throws IOException {
-        while(true){
-        try{
-        Socket s = new Socket("192.168.137.1", 8080);
-        System.out.println("Conectado al servidor.");
+    public static void main(String[] args) {
+        String host = "192.168.137.1"; 
+        int port = 8080;
+        try {
+            Socket s = new Socket("host", port);
+            System.out.println("Conectado al servidor.");
 
-        paraMandar paraMandar = new paraMandar(s);
-        Thread hiloParaMandar = new Thread(paraMandar);
-        hiloParaMandar.start();
+            paraMandar paraMandar = new paraMandar(s);
+            Thread hiloParaMandar = new Thread(paraMandar);
+            hiloParaMandar.start();
 
-        paraRecibir paraRecibir = new paraRecibir(s);
-        Thread hiloParaRecibir = new Thread(paraRecibir);
-        hiloParaRecibir.start();
-        } catch (IOException e) {
-            System.out.println("No se pudo conectar al servidor: ");
-            System.out.println("Cerrando cliente");
-          try {
-              Thread.sleep(10000);
-          } catch (InterruptedException ie) {
-            System.out.println("Proceso interrumpido");
-          }
+            paraRecibir paraRecibir = new paraRecibir(s);
+            Thread hiloParaRecibir = new Thread(paraRecibir);
+            hiloParaRecibir.start();
+
+        } catch (IOException ex) {
+            System.out.println("❌ No se pudo conectar al servidor (" + host + ":" + port + ").");
+            System.out.println("Cerrando cliente.");
+            // salir limpiamente
         }
-       } 
-     }
-  }
+    }
+}
 
 
