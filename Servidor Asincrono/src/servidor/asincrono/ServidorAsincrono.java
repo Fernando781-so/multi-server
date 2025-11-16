@@ -7,7 +7,6 @@ import java.util.concurrent.*;
 
 public class ServidorAsincrono {
 
-    // Estado global
     public static final Object CLIENTE_LOCK = new Object();
     public static final Map<String, String> SolicitudesPendientes = new HashMap<>();
     public static Map<String, UnCliente> Clientes = new ConcurrentHashMap<>();
@@ -19,8 +18,27 @@ public class ServidorAsincrono {
     public static Map<String, GrupoChat> Grupos = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
+        // inicializar BD y cargar datos
+        BaseDeDatos.inicializar();
+        BaseDeDatos.cargarJugadores(Ranking);
+        BaseDeDatos.cargarVersus(Ranking);
+
         inicializarGrupos();
-        System.out.println("Iniciando Servidor");
+
+        // hook para guardar al cerrar
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("💾 Guardando datos antes de cerrar...");
+            for (var e : Ranking.entrySet()) {
+                BaseDeDatos.guardarJugador(e.getKey(), e.getValue());
+                // guardar todos sus versus
+                for (var ve : e.getValue().getEnfrentamientos().entrySet()) {
+                    BaseDeDatos.guardarVersus(e.getKey(), ve.getKey(), ve.getValue());
+                }
+            }
+            System.out.println("💾 Guardado completado.");
+        }));
+
+        System.out.println("Servidor iniciado en puerto 8080");
         try (ServerSocket ss = new ServerSocket(8080)) {
             while (true) {
                 Socket s = ss.accept();
@@ -28,17 +46,18 @@ public class ServidorAsincrono {
                 cliente.start();
             }
         } catch (IOException e) {
-            System.out.println("Error al iniciar el servidor");
+            System.out.println("Error al iniciar el servidor: " + e.getMessage());
         }
     }
 
     public static void inicializarGrupos() {
-        Grupos.put("Todos", new GrupoChat("Todos"));
+        Grupos.putIfAbsent("Todos", new GrupoChat("Todos"));
     }
 
     public static void enviarAGrupo(UnCliente remitente, String mensaje) throws IOException {
         String grupo = GruposUsuarios.getOrDefault(remitente.nombre, "Todos");
         GrupoChat chat = Grupos.get(grupo);
+        if (chat == null) return;
         synchronized (CLIENTE_LOCK) {
             for (String miembro : chat.getMiembros()) {
                 UnCliente cli = Clientes.get(miembro);
@@ -49,7 +68,6 @@ public class ServidorAsincrono {
         }
     }
 
-    // 🔹 Inicia una partida privada entre j1 (retador) y j2 (aceptante)
     public static synchronized void iniciarPartida(UnCliente j1, UnCliente j2) {
         if (j1.nombre.equals(j2.nombre)) {
             j1.enviar("⚠️ No puedes jugar contra ti mismo.");
@@ -64,10 +82,12 @@ public class ServidorAsincrono {
 
         JuegoGato g = new JuegoGato(j1, j2);
         Partidas.put(clave, g);
+        // marcar rivales activos en UnCliente
+        j1.rivalesActivos.add(j2.nombre);
+        j2.rivalesActivos.add(j1.nombre);
         g.iniciar();
     }
 
-    // 🔹 Ejecuta un movimiento dentro de una partida específica
     public static void mover(String jugador, String rival, int pos) {
         String clave = JuegoGato.clave(jugador, rival);
         JuegoGato partida = Partidas.get(clave);
@@ -79,7 +99,6 @@ public class ServidorAsincrono {
         partida.jugar(jugador, pos);
     }
 
-    // 🔹 Rendirse en una partida específica
     public static void rendirse(String jugador, String rival) {
         String clave = JuegoGato.clave(jugador, rival);
         JuegoGato partida = Partidas.get(clave);
@@ -91,7 +110,6 @@ public class ServidorAsincrono {
         partida.rendirse(jugador);
     }
 
-    // 🔹 Finalizar partida por desconexión
     public static void finalizarPartidaPorDesconexion(String jugador) {
         List<String> clavesEliminar = new ArrayList<>();
         for (Map.Entry<String, JuegoGato> entry : Partidas.entrySet()) {
@@ -103,14 +121,14 @@ public class ServidorAsincrono {
                         : partida.jugador1.nombre;
 
                 partida.enviarAmbos("⚠️ " + jugador + " se ha desconectado. ¡" + ganador + " gana por abandono!");
-                registrarResultado(ganador, jugador, "gana1");
+                // registrar resultado: ganador vs jugador
+                registrarResultado(ganador, jugador, ganador.equals(partida.jugador1.nombre) ? "gana1" : "gana2");
                 clavesEliminar.add(clave);
             }
         }
         for (String c : clavesEliminar) Partidas.remove(c);
     }
 
-    // 🔹 Registrar resultados
     public static void registrarResultado(String j1, String j2, String resultado) {
         EstadisticasJugador e1 = Ranking.computeIfAbsent(j1, k -> new EstadisticasJugador());
         EstadisticasJugador e2 = Ranking.computeIfAbsent(j2, k -> new EstadisticasJugador());
@@ -136,6 +154,16 @@ public class ServidorAsincrono {
             }
         }
 
+        // Guardar inmediatamente en BD
+        BaseDeDatos.guardarJugador(j1, e1);
+        BaseDeDatos.guardarJugador(j2, e2);
+
+        // guardar enfrentamientos (versus) para ambos sentidos
+        var enf1 = e1.getEnfrentamiento(j2);
+        var enf2 = e2.getEnfrentamiento(j1);
+        if (enf1 != null) BaseDeDatos.guardarVersus(j1, j2, enf1);
+        if (enf2 != null) BaseDeDatos.guardarVersus(j2, j1, enf2);
+
         System.out.printf("📊 Resultado registrado: %s vs %s → %s%n", j1, j2, resultado);
     }
 
@@ -154,7 +182,6 @@ public class ServidorAsincrono {
         return e1.getResumenContra(j1, j2);
     }
 
-    // 🔹 Ayuda
     public static String ayuda() {
         return """
         COMANDOS:
@@ -178,13 +205,13 @@ public class ServidorAsincrono {
 
         GATO:
           /jugar <usuario>          - retar a otro jugador
-          /aceptar <retador>       - aceptar reto
-          /mover <oponente> <1-9>    - hacer movimiento contra oponente específico
-          /rendirse <oponente>       - rendirse en partida contra oponente
+          /aceptar <retador>        - aceptar reto
+          /mover <oponente> <1-9>   - mover contra oponente específico
+          /rendirse <oponente>      - rendirse en partida contra oponente
 
         RANKING:
-          /ranking                               - mostrar ranking
-          /versus <jugador> <oponente>           - win-rate entre dos jugadores (el winrate es del jugador)
+          /ranking                  - mostrar ranking
+          /versus <jugador> <oponente> - win-rate entre dos jugadores
         """;
     }
 }
