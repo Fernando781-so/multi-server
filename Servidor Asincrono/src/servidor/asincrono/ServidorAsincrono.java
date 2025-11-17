@@ -19,9 +19,9 @@ public class ServidorAsincrono {
 
     public static void main(String[] args) {
         // inicializar BD y cargar datos
-        BaseDeDatos.inicializar();
-        BaseDeDatos.cargarJugadores(Ranking);
-        BaseDeDatos.cargarVersus(Ranking);
+        BaseDatos.inicializar();
+        BaseDatos.cargarJugadores(Ranking);
+        BaseDatos.cargarVersus(Ranking);
 
         inicializarGrupos();
 
@@ -29,10 +29,10 @@ public class ServidorAsincrono {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("💾 Guardando datos antes de cerrar...");
             for (var e : Ranking.entrySet()) {
-                BaseDeDatos.guardarJugador(e.getKey(), e.getValue());
+                BaseDatos.guardarJugador(e.getKey(), e.getValue());
                 // guardar todos sus versus
                 for (var ve : e.getValue().getEnfrentamientos().entrySet()) {
-                    BaseDeDatos.guardarVersus(e.getKey(), ve.getKey(), ve.getValue());
+                    BaseDatos.guardarVersus(e.getKey(), ve.getKey(), ve.getValue());
                 }
             }
             System.out.println("💾 Guardado completado.");
@@ -155,14 +155,14 @@ public class ServidorAsincrono {
         }
 
         // Guardar inmediatamente en BD
-        BaseDeDatos.guardarJugador(j1, e1);
-        BaseDeDatos.guardarJugador(j2, e2);
+        BaseDatos.guardarJugador(j1, e1);
+        BaseDatos.guardarJugador(j2, e2);
 
         // guardar enfrentamientos (versus) para ambos sentidos
         var enf1 = e1.getEnfrentamiento(j2);
         var enf2 = e2.getEnfrentamiento(j1);
-        if (enf1 != null) BaseDeDatos.guardarVersus(j1, j2, enf1);
-        if (enf2 != null) BaseDeDatos.guardarVersus(j2, j1, enf2);
+        if (enf1 != null) BaseDatos.guardarVersus(j1, j2, enf1);
+        if (enf2 != null) BaseDatos.guardarVersus(j2, j1, enf2);
 
         System.out.printf("📊 Resultado registrado: %s vs %s → %s%n", j1, j2, resultado);
     }
