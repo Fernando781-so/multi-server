@@ -5,10 +5,10 @@ import java.net.Socket;
 
 public class ClienteMulti {
     public static void main(String[] args) {
-        String host = "192.168.137.1"; 
+        String host = "LocalHost"; 
         int port = 8080;
         try {
-            Socket s = new Socket("host", port);
+            Socket s = new Socket(host, port);
             System.out.println("Conectado al servidor.");
 
             paraMandar paraMandar = new paraMandar(s);

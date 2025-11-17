@@ -184,6 +184,7 @@ public class ServidorAsincrono {
 
     public static String ayuda() {
         return """
+        --------------------------------------------------------------------
         COMANDOS:
         SESIÓN:
           /login <nombre>           - iniciar sesión
@@ -212,6 +213,7 @@ public class ServidorAsincrono {
         RANKING:
           /ranking                  - mostrar ranking
           /versus <jugador> <oponente> - win-rate entre dos jugadores
+         ---------------------------------------------------------------------
         """;
     }
 }

@@ -1,8 +1,10 @@
 {
     "java.project.sourcePaths": [
-        "Servidor Asincrono\\src"
+        "Servidor Asincrono/src"
     ],
     "java.project.referencedLibraries": [
-        "c:\\Users\\feryh\\Downloads\\sqlite-jdbc-3.7.2.jar"
-    ]
+        "c:\\Users\\feryh\\Downloads\\sqlite-jdbc-3.7.2.jar",
+        "c:\\Users\\feryh\\Downloads\\sqlite-jdbc-3.23.1.jar"
+    ],
+    "java.project.explorer.showNonJavaResources": false
 }
