@@ -8,37 +8,19 @@ import java.util.concurrent.*;
 public class ServidorAsincrono {
 
     public static final Object CLIENTE_LOCK = new Object();
-    public static final Map<String, String> SolicitudesPendientes = new HashMap<>();
+    public static final Map<String, String> SolicitudesPendientes = new ConcurrentHashMap<>();
     public static Map<String, UnCliente> Clientes = new ConcurrentHashMap<>();
     public static Map<String, EstadisticasJugador> Ranking = new ConcurrentHashMap<>();
     public static Map<String, JuegoGato> Partidas = new ConcurrentHashMap<>();
     public static Map<String, String> GruposUsuarios = new ConcurrentHashMap<>();
     public static Map<String, Set<String>> Bloqueos = new ConcurrentHashMap<>();
-    public static Map<String, String> Usuarios = new ConcurrentHashMap<>();
     public static Map<String, GrupoChat> Grupos = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
-        // inicializar BD y cargar datos
-        BaseDatos.inicializar();
-        BaseDatos.cargarJugadores(Ranking);
-        BaseDatos.cargarVersus(Ranking);
-
         inicializarGrupos();
-
-        // hook para guardar al cerrar
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("💾 Guardando datos antes de cerrar...");
-            for (var e : Ranking.entrySet()) {
-                BaseDatos.guardarJugador(e.getKey(), e.getValue());
-                // guardar todos sus versus
-                for (var ve : e.getValue().getEnfrentamientos().entrySet()) {
-                    BaseDatos.guardarVersus(e.getKey(), ve.getKey(), ve.getValue());
-                }
-            }
-            System.out.println("💾 Guardado completado.");
-        }));
-
-        System.out.println("Servidor iniciado en puerto 8080");
+        // cargar datos desde BD a memoria
+        BaseDatos.cargarDatosEnMemoria();
+        System.out.println("Iniciando Servidor en puerto 8080");
         try (ServerSocket ss = new ServerSocket(8080)) {
             while (true) {
                 Socket s = ss.accept();
@@ -51,7 +33,7 @@ public class ServidorAsincrono {
     }
 
     public static void inicializarGrupos() {
-        Grupos.putIfAbsent("Todos", new GrupoChat("Todos"));
+        Grupos.put("Todos", new GrupoChat("Todos"));
     }
 
     public static void enviarAGrupo(UnCliente remitente, String mensaje) throws IOException {
@@ -82,9 +64,6 @@ public class ServidorAsincrono {
 
         JuegoGato g = new JuegoGato(j1, j2);
         Partidas.put(clave, g);
-        // marcar rivales activos en UnCliente
-        j1.rivalesActivos.add(j2.nombre);
-        j2.rivalesActivos.add(j1.nombre);
         g.iniciar();
     }
 
@@ -119,10 +98,8 @@ public class ServidorAsincrono {
                 String ganador = partida.jugador1.nombre.equals(jugador)
                         ? partida.jugador2.nombre
                         : partida.jugador1.nombre;
-
                 partida.enviarAmbos("⚠️ " + jugador + " se ha desconectado. ¡" + ganador + " gana por abandono!");
-                // registrar resultado: ganador vs jugador
-                registrarResultado(ganador, jugador, ganador.equals(partida.jugador1.nombre) ? "gana1" : "gana2");
+                registrarResultado(ganador, jugador, "gana1");
                 clavesEliminar.add(clave);
             }
         }
@@ -154,15 +131,7 @@ public class ServidorAsincrono {
             }
         }
 
-        // Guardar inmediatamente en BD
-        BaseDatos.guardarJugador(j1, e1);
-        BaseDatos.guardarJugador(j2, e2);
-
-        // guardar enfrentamientos (versus) para ambos sentidos
-        var enf1 = e1.getEnfrentamiento(j2);
-        var enf2 = e2.getEnfrentamiento(j1);
-        if (enf1 != null) BaseDatos.guardarVersus(j1, j2, enf1);
-        if (enf2 != null) BaseDatos.guardarVersus(j2, j1, enf2);
+        BaseDatos.registrarResultado(j1, j2, resultado);
 
         System.out.printf("📊 Resultado registrado: %s vs %s → %s%n", j1, j2, resultado);
     }
@@ -175,20 +144,17 @@ public class ServidorAsincrono {
         return sb.toString();
     }
 
+    // devolver vs desde BD (más fiable)
     public static String obtenerVs(String j1, String j2) {
-        EstadisticasJugador e1 = Ranking.get(j1);
-        EstadisticasJugador e2 = Ranking.get(j2);
-        if (e1 == null || e2 == null) return "❌ Uno o ambos jugadores no existen.";
-        return e1.getResumenContra(j1, j2);
+        return BaseDatos.obtenerVsDesdeBD(j1, j2);
     }
 
     public static String ayuda() {
         return """
-        --------------------------------------------------------------------
         COMANDOS:
         SESIÓN:
           /login <nombre>           - iniciar sesión
-          /desconectar              - salir del servidor (no en partida)
+          /desconectar              - salir (no permitido en partida)
 
         CHAT:
           /conectados               - usuarios conectados
@@ -200,20 +166,19 @@ public class ServidorAsincrono {
           /grupos                   - listar grupos
           /creargrupo <nombre>      - crear grupo
           /unir <nombre>            - unirse a grupo
-          /salirgrupo               - salir al grupo 'Todos'
+          /salirgrupo               - volver a 'Todos'
           /borrargrupo <nombre>     - borrar grupo vacío
           /miembros                 - listar miembros del grupo actual
 
         GATO:
           /jugar <usuario>          - retar a otro jugador
           /aceptar <retador>        - aceptar reto
-          /mover <oponente> <1-9>   - mover contra oponente específico
+          /mover <oponente> <1-9>   - mover en la partida contra oponente
           /rendirse <oponente>      - rendirse en partida contra oponente
 
         RANKING:
           /ranking                  - mostrar ranking
-          /versus <jugador> <oponente> - win-rate entre dos jugadores
-         ---------------------------------------------------------------------
+          /versus <jugador> <oponente> - win-rate (del primer jugador)
         """;
     }
 }
