@@ -9,27 +9,35 @@ import java.net.Socket;
 public class paraMandar implements Runnable {
     final BufferedReader teclado = new BufferedReader(new InputStreamReader(System.in));
     final DataOutputStream salida;
+    final Socket socket;
 
     public paraMandar(Socket s) throws IOException {
+        this.socket = s;
         this.salida = new DataOutputStream(s.getOutputStream());
     }
 
     @Override
     public void run() {
         try {
-            while (true) {
-                String mensaje = teclado.readLine();
+            while (!socket.isClosed()) {
+                String mensaje = teclado.readLine(); 
                 if (mensaje == null) {
-                    System.out.println("Entrada EOF detectada, cerrando conexión...");
-                    try { salida.writeUTF("/desconectarse"); } catch (IOException ignored) {}
+                    System.out.println("EOF detectado. Cerrando conexión...");
+                    try {
+                        salida.writeUTF("/desconectar");
+                    } catch (IOException ignored) {}
                     break;
                 }
-                salida.writeUTF(mensaje);
+                try {
+                    salida.writeUTF(mensaje);
+                } catch (IOException e) {
+                    System.out.println("Error enviando: " + e.getMessage());
+                    break;
+                }
             }
+            try { socket.close(); } catch (IOException ignored) {}
         } catch (IOException e) {
-            System.out.println("Error al enviar mensaje: " + e.getMessage());
+            System.out.println("Error en paraMandar: " + e.getMessage());
         }
     }
 }
-
-
