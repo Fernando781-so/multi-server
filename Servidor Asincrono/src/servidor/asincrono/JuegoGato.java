@@ -1,6 +1,7 @@
 package servidor.asincrono;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.Random;
 
 public class JuegoGato {
 
@@ -16,10 +17,10 @@ public class JuegoGato {
         Arrays.fill(tablero, ' ');
     }
 
-    public static String clave(String a, String b) {
-        List<String> l = Arrays.asList(a, b);
-        Collections.sort(l);
-        return l.get(0) + "_" + l.get(1);
+    public static String clave(String j1, String j2) {
+        String[] a = {j1, j2};
+        Arrays.sort(a);
+        return a[0] + "_" + a[1];
     }
 
     public void iniciar() {
@@ -28,6 +29,8 @@ public class JuegoGato {
         enviarAmbos("🎮 Nueva partida entre " + jugador1.nombre + " (X) y " + jugador2.nombre + " (O)");
         enviarAmbos("🌀 Empieza: " + turno);
         enviarAmbos(dibujarTablero());
+        jugador1.rivalesActivos.add(jugador2.nombre);
+        jugador2.rivalesActivos.add(jugador1.nombre);
     }
 
     public boolean contieneJugador(String nombre) {
@@ -54,6 +57,7 @@ public class JuegoGato {
         }
         char marca = jugador.equals(jugador1.nombre) ? 'X' : 'O';
         tablero[idx] = marca;
+
         enviarAmbos("🎯 " + jugador + " marcó posición " + pos);
         enviarAmbos(dibujarTablero());
 
@@ -61,16 +65,14 @@ public class JuegoGato {
             enCurso = false;
             enviarAmbos("🏆 " + jugador + " ha ganado la partida.");
             String perdedor = jugador.equals(jugador1.nombre) ? jugador2.nombre : jugador1.nombre;
-            // registrar resultado en Servidor (gana1 = primer parametro j1 ganó)
-            if (jugador.equals(jugador1.nombre)) ServidorAsincrono.registrarResultado(jugador1.nombre, jugador2.nombre, "gana1");
-            else ServidorAsincrono.registrarResultado(jugador2.nombre, jugador1.nombre, "gana1");
+            ServidorAsincrono.registrarResultado(jugador, perdedor, jugador.equals(jugador1.nombre) ? "gana1" : "gana2");
             limpiarPartida();
             return;
         }
 
         if (tableroLleno()) {
             enCurso = false;
-            enviarAmbos("🤝 Empate!");
+            enviarAmbos("🤝 La partida ha terminado en empate.");
             ServidorAsincrono.registrarResultado(jugador1.nombre, jugador2.nombre, "empate");
             limpiarPartida();
             return;
@@ -80,14 +82,11 @@ public class JuegoGato {
         enviarAmbos("➡️ Turno de: " + turno);
     }
 
-    public synchronized void rendirse(String nombre) {
-        if (!enCurso) {
-            enviar(nombre, "⚠️ No hay partida activa.");
-            return;
-        }
-        String ganador = jugador1.nombre.equals(nombre) ? jugador2.nombre : jugador1.nombre;
-        enviarAmbos("🏳️ " + nombre + " se rindió. Gana " + ganador + ".");
-        ServidorAsincrono.registrarResultado(ganador, nombre, ganador.equals(jugador1.nombre) ? "gana1" : "gana2");
+    public synchronized void rendirse(String jugador) {
+        if (!enCurso) { enviar(jugador, "⚠️ No hay partida activa."); return; }
+        String ganador = jugador.equals(jugador1.nombre) ? jugador2.nombre : jugador1.nombre;
+        enviarAmbos("🏳️ " + jugador + " se ha rendido. Gana " + ganador + ".");
+        ServidorAsincrono.registrarResultado(ganador, jugador, ganador.equals(jugador1.nombre) ? "gana1" : "gana2");
         limpiarPartida();
     }
 
@@ -104,7 +103,7 @@ public class JuegoGato {
     public String dibujarTablero() {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 9; i++) {
-            sb.append(tablero[i] == ' ' ? String.valueOf(i + 1) : String.valueOf(tablero[i]));
+            sb.append(tablero[i] == ' ' ? (i + 1) : tablero[i]);
             if (i % 3 == 2 && i != 8) sb.append("\n───┼───┼───\n");
             else if (i % 3 != 2) sb.append(" │ ");
         }
@@ -113,13 +112,11 @@ public class JuegoGato {
 
     private boolean hayGanador(char m) {
         int[][] lineas = {
-            {0,1,2},{3,4,5},{6,7,8},
-            {0,3,6},{1,4,7},{2,5,8},
-            {0,4,8},{2,4,6}
+                {0,1,2},{3,4,5},{6,7,8},
+                {0,3,6},{1,4,7},{2,5,8},
+                {0,4,8},{2,4,6}
         };
-        for (int[] l : lineas)
-            if (tablero[l[0]] == m && tablero[l[1]] == m && tablero[l[2]] == m)
-                return true;
+        for (int[] l : lineas) if (tablero[l[0]] == m && tablero[l[1]] == m && tablero[l[2]] == m) return true;
         return false;
     }
 
@@ -131,11 +128,6 @@ public class JuegoGato {
     private void limpiarPartida() {
         jugador1.rivalesActivos.remove(jugador2.nombre);
         jugador2.rivalesActivos.remove(jugador1.nombre);
-        PartidasSafeRemove();
-    }
-
-    private void PartidasSafeRemove() {
-        String clave = clave(jugador1.nombre, jugador2.nombre);
-        ServidorAsincrono.Partidas.remove(clave);
+        ServidorAsincrono.Partidas.remove(clave(jugador1.nombre, jugador2.nombre));
     }
 }
