@@ -26,7 +26,7 @@ public final class UnCliente extends Thread {
             this.nombre = "Invitado_" + new Random().nextInt(10000);
             enviar("👋 Bienvenido " + nombre + ". Puedes usar 3 mensajes antes de /login <nombre>.\nEscribe /ayuda para comandos.");
             ServidorAsincrono.Grupos.putIfAbsent("Todos", new GrupoChat("Todos"));
-            ServidorAsincrono.Grupos.get("Todos").unir(nombre);
+            ((GrupoChat) ServidorAsincrono.Grupos.get("Todos")).unir(nombre);
             ServidorAsincrono.Clientes.put(nombre, this);
         } catch (IOException e) {
             System.out.println("Error al crear cliente: " + e.getMessage());
@@ -36,7 +36,10 @@ public final class UnCliente extends Thread {
     public synchronized void enviar(String m) {
         try {
             salida.writeUTF(m);
-        } catch (IOException e) {}
+        } catch (IOException e) {
+            // si no se puede enviar, cerramos
+            cerrar();
+        }
     }
 
     @Override
@@ -48,7 +51,26 @@ public final class UnCliente extends Thread {
                 linea = linea.trim();
                 if (linea.isEmpty()) continue;
                 if (linea.startsWith("/")) procesarComando(linea);
-                else enviarAGrupo(nombre + ": " + linea);
+                else {
+                    // mensaje normal: comprobar invitado y límites
+                    if (esAnonimo) {
+                        mensajesAnonimos++;
+                        if (mensajesAnonimos > 3) {
+                            enviar("🚫 Límite de 3 mensajes alcanzado para invitados. Usa /login <nombre> para seguir.");
+                            continue;
+                        }
+                        // invitados solo en Todos
+                        if (!"Todos".equals(grupoActual)) {
+                            enviar("🚫 Invitados solo pueden estar en 'Todos'. Cambiando a 'Todos'.");
+                            cambiarGrupoInterno("Todos");
+                        }
+                        enviarAGrupo(nombre + " (Invitado): " + linea);
+                    } else {
+                        enviarAGrupo(nombre + ": " + linea);
+                    }
+                    // Persistir mensaje en BD (si no es vacío)
+                    BaseDatos.guardarMensaje(nombre, linea);
+                }
             }
         } catch (IOException e) {
             System.out.println("Desconexión de " + nombre);
@@ -61,6 +83,7 @@ public final class UnCliente extends Thread {
     private void procesarComando(String linea) {
         String[] partes = linea.split(" ", 3);
         String cmd = partes[0].toLowerCase();
+
         try {
             switch (cmd) {
                 case "/login" -> {
@@ -70,17 +93,19 @@ public final class UnCliente extends Thread {
                     }
                     if (partes.length < 2) { enviar("Uso: /login <usuario>"); return; }
                     String nuevoNombre = partes[1].trim();
-                    if (ServidorAsincrono.Clientes.containsKey(nuevoNombre)) {
-                        enviar("❌ Ese nombre ya está en uso.");
-                        return;
-                    }
+                    if (ServidorAsincrono.Clientes.containsKey(nuevoNombre)) { enviar("❌ Ese nombre ya está en uso."); return; }
+
                     synchronized (ServidorAsincrono.class) {
                         ServidorAsincrono.Clientes.remove(this.nombre);
                         ServidorAsincrono.Clientes.put(nuevoNombre, this);
                     }
+
+                    BaseDatos.asegurarJugador(nuevoNombre);
                     ServidorAsincrono.Ranking.putIfAbsent(nuevoNombre, new EstadisticasJugador());
+
                     this.esAnonimo = false;
                     this.mensajesAnonimos = 0;
+
                     enviar("✅ Sesión iniciada como: " + nuevoNombre);
                     System.out.println("🔑 Usuario '" + this.nombre + "' ahora es '" + nuevoNombre + "'");
                     try {
@@ -88,9 +113,11 @@ public final class UnCliente extends Thread {
                         f.setAccessible(true);
                         f.set(this, nuevoNombre);
                     } catch (Exception ignored) {}
+
                     ServidorAsincrono.Grupos.putIfAbsent("Todos", new GrupoChat("Todos"));
-                    GrupoChat grupoTodos = (GrupoChat) ServidorAsincrono.Grupos.get("Todos");
+                    GrupoChat grupoTodos = ServidorAsincrono.Grupos.get("Todos");
                     if (!grupoTodos.getMiembros().contains(nuevoNombre)) grupoTodos.unir(nuevoNombre);
+
                     this.grupoActual = "Todos";
                     enviar("📥 Te has unido al grupo 'Todos'. Mostrando últimos mensajes:");
                     for (String msg : grupoTodos.obtenerMensajesNoVistos()) enviar("[Historial] " + msg);
@@ -101,9 +128,9 @@ public final class UnCliente extends Thread {
                     for (Map.Entry<String, UnCliente> entry : ServidorAsincrono.Clientes.entrySet()) {
                         UnCliente c = entry.getValue();
                         sb.append("- ").append(c.nombre)
-                          .append(" => Grupo: ").append(c.grupoActual)
-                          .append(c.esAnonimo ? " (Invitado)" : "")
-                          .append("\n");
+                            .append(" => Grupo: ").append(c.grupoActual)
+                            .append(c.esAnonimo ? " (Invitado)" : "")
+                            .append("\n");
                     }
                     enviar(sb.toString());
                 }
@@ -176,6 +203,7 @@ public final class UnCliente extends Thread {
                     if (u.equals(nombre)) { enviar("❌ No puedes bloquearte a ti mismo."); return; }
                     UnCliente objetivo = ServidorAsincrono.Clientes.get(u);
                     if (objetivo == null) { enviar("❌ Usuario no encontrado."); return; }
+                    // comprobar partidas activas entre ambos
                     for (JuegoGato partida : ServidorAsincrono.Partidas.values()) {
                         if (partida.contieneJugador(nombre) && partida.contieneJugador(u)) {
                             enviar("🚫 No puedes bloquear a tu rival mientras están jugando una partida.");
@@ -212,6 +240,7 @@ public final class UnCliente extends Thread {
                     if (pendiente == null || !pendiente.equals(who)) { enviar("⚠️ No tienes invitación de " + who); return; }
                     UnCliente retador = ServidorAsincrono.Clientes.get(who);
                     if (retador == null) { enviar("❌ El retador ya no está disponible."); return; }
+
                     rivalesActivos.add(who);
                     retador.rivalesActivos.add(nombre);
                     ServidorAsincrono.iniciarPartida(retador, this);
@@ -240,24 +269,34 @@ public final class UnCliente extends Thread {
 
                 case "/ayuda" -> enviar(ServidorAsincrono.ayuda());
 
-                default -> enviar("❓ Comando desconocido.");
+                default -> enviar("❓ Comando desconocido. Usa /ayuda.");
             }
         } catch (Exception e) {
             enviar("⚠️ Error: " + e.getMessage());
         }
     }
 
+    // enviar a todos en el grupo actual, pero NO enviarte a ti mismo
     private void enviarAGrupo(String mensaje) {
         GrupoChat g = ServidorAsincrono.Grupos.get(grupoActual);
         if (g == null) return;
         g.agregarMensaje(mensaje);
         for (String miembro : g.getMiembros()) {
-            if (miembro.equals(nombre)) continue;
+            if (miembro.equals(nombre)) continue;  // no enviarte a ti mismo
             UnCliente c = ServidorAsincrono.Clientes.get(miembro);
             if (c == null) continue;
             if (c.bloqueados.contains(this.nombre)) continue;
             c.enviar("[" + grupoActual + "] " + mensaje);
         }
+    }
+
+    private void cambiarGrupoInterno(String nuevo) {
+        GrupoChat old = ServidorAsincrono.Grupos.get(grupoActual);
+        if (old != null) old.salir(nombre);
+        grupoActual = nuevo;
+        GrupoChat g = ServidorAsincrono.Grupos.get(nuevo);
+        if (g != null) g.unir(nombre);
+        ServidorAsincrono.GruposUsuarios.put(nombre, nuevo);
     }
 
     private void manejarDesconexion() {
@@ -273,5 +312,6 @@ public final class UnCliente extends Thread {
         } catch (IOException ignored) {}
     }
 }
+
 
 
