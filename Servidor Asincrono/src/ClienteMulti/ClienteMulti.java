@@ -22,7 +22,7 @@ public class ClienteMulti {
         } catch (IOException e) {
             System.out.println("No se pudo conectar al servidor en " + host + ":" + port + " -> ");
             System.out.println("Cerrando cliente.");
-            // salir sin crashear
+ 
         }
     }
 }
