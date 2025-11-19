@@ -149,14 +149,17 @@ public final class UnCliente extends Thread {
                     enviar(sb.toString());
                 }
 
-                case "/creargrupo" -> {
-                    if (esAnonimo) { enviar("🚫 Invitados no pueden crear grupos."); return; }
-                    if (partes.length < 2) { enviar("Uso: /creargrupo <nombre>"); return; }
-                    String g = partes[1].trim();
-                    if (g.equalsIgnoreCase("Todos")) { enviar("🚫 No se puede crear 'Todos'."); return; }
-                    ServidorAsincrono.Grupos.putIfAbsent(g, new GrupoChat(g));
-                    enviar("✅ Grupo '" + g + "' creado (o ya existía).");
-                }
+                        case "/creargrupo" -> {
+                if (esAnonimo) { enviar("🚫 Invitados no pueden crear grupos."); return; }
+                if (partes.length < 2) { enviar("Uso: /creargrupo <nombre>"); return; }
+                String g = partes[1].trim();
+                if (g.equalsIgnoreCase("Todos")) { enviar("🚫 No se puede crear 'Todos'."); return; }
+
+                ServidorAsincrono.Grupos.putIfAbsent(g, new GrupoChat(g));
+                BaseDatos.guardarGrupo(g);
+
+                enviar("✅ Grupo '" + g + "' creado (o ya existía).");
+            }
 
                 case "/unir" -> {
                     if (partes.length < 2) { enviar("Uso: /unir <grupo>"); return; }
@@ -179,17 +182,22 @@ public final class UnCliente extends Thread {
                     enviar("↩️ Has vuelto al grupo 'Todos'.");
                 }
 
-                case "/borrargrupo" -> {
-                    if (esAnonimo) { enviar("🚫 Invitados no pueden borrar grupos."); return; }
-                    if (partes.length < 2) { enviar("Uso: /borrargrupo <nombre>"); return; }
-                    String g = partes[1].trim();
-                    if (g.equalsIgnoreCase("Todos")) { enviar("🚫 No se puede borrar 'Todos'."); return; }
-                    GrupoChat grupo = ServidorAsincrono.Grupos.get(g);
-                    if (grupo == null) { enviar("❌ No existe."); return; }
-                    if (!grupo.estaVacio()) { enviar("⚠️ No se puede borrar: aún tiene miembros."); return; }
-                    ServidorAsincrono.Grupos.remove(g);
-                    enviar("🗑️ Grupo '" + g + "' borrado.");
-                }
+                        case "/borrargrupo" -> {
+                            if (esAnonimo) { enviar("🚫 Invitados no pueden borrar grupos."); return; }
+                            if (partes.length < 2) { enviar("Uso: /borrargrupo <nombre>"); return; }
+                            String g = partes[1].trim();
+
+                            if (g.equalsIgnoreCase("Todos")) { enviar("🚫 No se puede borrar 'Todos'."); return; }
+
+                            GrupoChat grupo = ServidorAsincrono.Grupos.get(g);
+                            if (grupo == null) { enviar("❌ No existe."); return; }
+                            if (!grupo.estaVacio()) { enviar("⚠️ No se puede borrar: aún tiene miembros."); return; }
+
+                            ServidorAsincrono.Grupos.remove(g);
+                            BaseDatos.borrarGrupo(g);
+
+                            enviar("🗑️ Grupo '" + g + "' borrado.");
+                        }
 
                 case "/miembros" -> {
                     GrupoChat grupo = ServidorAsincrono.Grupos.get(grupoActual);

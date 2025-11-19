@@ -12,9 +12,15 @@ public class GrupoChat {
 
     public String getNombre() { return nombre; }
 
-    public void unir(String usuario) { miembros.add(usuario); }
-
-    public void salir(String usuario) { miembros.remove(usuario); }
+    public void unir(String usuario) {
+    miembros.add(usuario);
+    BaseDatos.agregarMiembroGrupo(nombre, usuario);
+    }
+    
+    public void salir(String usuario) {
+    miembros.remove(usuario);
+    BaseDatos.eliminarMiembroGrupo(nombre, usuario);
+     }
 
     public boolean estaVacio() { return miembros.isEmpty(); }
 

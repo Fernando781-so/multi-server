@@ -49,6 +49,20 @@ public class BaseDatos {
                     fecha DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
             """);
+            st.execute("""
+                CREATE TABLE IF NOT EXISTS grupos (
+              nombre TEXT PRIMARY KEY
+                );
+            """);
+
+            st.execute("""
+                CREATE TABLE IF NOT EXISTS grupos_miembros (
+                    grupo TEXT NOT NULL,
+                    usuario TEXT NOT NULL,
+                    PRIMARY KEY (grupo, usuario)
+                );
+            """);
+
 
             System.out.println("[BD] Tablas inicializadas correctamente.");
         } catch (SQLException e) {
@@ -196,6 +210,97 @@ public class BaseDatos {
             System.out.println("[BD] Error registrarResultado: " + ex.getMessage());
         }
     }
+     
+            public static void guardarGrupo(String grupo) {
+            String sql = "INSERT OR IGNORE INTO grupos(nombre) VALUES (?)";
+            try (Connection conn = conectar();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, grupo);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                System.out.println("[BD] Error guardando grupo: " + e.getMessage());
+            }
+        }
+
+                public static void borrarGrupo(String grupo) {
+            try (Connection conn = conectar()) {
+                conn.setAutoCommit(false);
+
+                try (PreparedStatement ps1 = conn.prepareStatement(
+                        "DELETE FROM grupos_miembros WHERE grupo = ?")) {
+                    ps1.setString(1, grupo);
+                    ps1.executeUpdate();
+                }
+
+                try (PreparedStatement ps2 = conn.prepareStatement(
+                        "DELETE FROM grupos WHERE nombre = ?")) {
+                    ps2.setString(1, grupo);
+                    ps2.executeUpdate();
+                }
+
+                conn.commit();
+            } catch (SQLException e) {
+                System.out.println("[BD] Error borrando grupo: " + e.getMessage());
+            }
+        }
+
+            public static void agregarMiembroGrupo(String grupo, String usuario) {
+            String sql = "INSERT OR IGNORE INTO grupos_miembros(grupo, usuario) VALUES (?, ?)";
+            try (Connection conn = conectar();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, grupo);
+                ps.setString(2, usuario);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                System.out.println("[BD] Error agregando miembro: " + e.getMessage());
+            }
+        }
+
+            public static void eliminarMiembroGrupo(String grupo, String usuario) {
+            String sql = "DELETE FROM grupos_miembros WHERE grupo = ? AND usuario = ?";
+            try (Connection conn = conectar();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, grupo);
+                ps.setString(2, usuario);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                System.out.println("[BD] Error eliminando miembro: " + e.getMessage());
+            }
+        }
+
+                public static void cargarGrupos() {
+            try (Connection conn = conectar();
+                Statement st = conn.createStatement();
+                ResultSet rs = st.executeQuery("SELECT nombre FROM grupos")) {
+
+                while (rs.next()) {
+                    String g = rs.getString("nombre");
+                    ServidorAsincrono.Grupos.put(g, new GrupoChat(g));
+                }
+
+            } catch (SQLException e) {
+                System.out.println("[BD] Error cargando grupos: " + e.getMessage());
+            }
+
+            try (Connection conn = conectar();
+                Statement st = conn.createStatement();
+                ResultSet rs = st.executeQuery("SELECT grupo, usuario FROM grupos_miembros")) {
+
+                while (rs.next()) {
+                    String grupo = rs.getString("grupo");
+                    String usuario = rs.getString("usuario");
+
+                    GrupoChat g = ServidorAsincrono.Grupos.get(grupo);
+                    if (g != null) {
+                        g.unir(usuario);
+                    }
+                }
+
+            } catch (SQLException e) {
+                System.out.println("[BD] Error cargando miembros de grupos: " + e.getMessage());
+            }
+        }
+
 
     // Carga jugadores y vs en memoria (para inicializar Ranking y enfrentamientos)
     public static void cargarDatosEnMemoria() {
