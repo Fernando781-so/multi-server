@@ -5,7 +5,7 @@ import java.net.Socket;
 
 public class ClienteMulti {
     public static void main(String[] args) {
-        String host = "192.168.90.13"; 
+        String host = "10.22.13.233"; 
         int port = 8080;
         try {
             Socket s = new Socket(host, port);
